@@ -17,7 +17,8 @@ app = FastAPI(title="Quantum AI Control Panel")
 # อนุญาตให้หน้าเว็บ Vue (ซึ่งมักจะรันคนละ Port) สามารถดึงข้อมูลได้ (CORS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # ตอนรันจริงบน Production ควรเปลี่ยนเป็น IP ของโดเมนเรา
+    allow_origins=["*"], # ปลดล็อกให้เข้าได้จากทั้ง localhost และ exness.e29ckg.org
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

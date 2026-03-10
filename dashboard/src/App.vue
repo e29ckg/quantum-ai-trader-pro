@@ -112,7 +112,13 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 const isAuthenticated = ref(!!localStorage.getItem('access_token'));
 const loginForm = ref({ username: '', password: '' });
 const loginError = ref('');
-const API_URL = "http://localhost:8000"; // ถ้าเอาขึ้น VPS จริง ให้เปลี่ยนเป็น IP เซิร์ฟเวอร์
+
+// ดึง Hostname ปัจจุบันที่ผู้ใช้เปิดเว็บอยู่
+const currentHost = window.location.hostname;
+
+// สร้าง URL สำหรับต่อ API และ WebSockets ให้เปลี่ยนตาม Host อัตโนมัติ!
+const API_URL = `http://${currentHost}`;
+const WS_URL = `ws://${currentHost}/ws/status`;
 
 const ws = ref(null);
 const isConnected = ref(false);
@@ -200,7 +206,7 @@ const fetchTradeHistory = async () => {
 // ⚡ ระบบ WebSockets (รับค่า Real-time)
 // ==========================================
 const connectWebSocket = () => {
-  ws.value = new WebSocket('ws://localhost:8000/ws/status');
+  ws.value = new WebSocket(WS_URL);
 
   ws.value.onopen = () => { isConnected.value = true; };
 
@@ -247,11 +253,19 @@ onUnmounted(() => {
 /* ==========================================
    🎨 สไตล์ CSS ระดับ Institutional
    ========================================== */
-:global(body) { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background-color: #0d1117; color: #c9d1d9; }
-
+:global(html), :global(body), :global(#app) { 
+  margin: 0; 
+  padding: 0; 
+  width: 100%; 
+  min-height: 100vh; 
+  background-color: #0d1117; 
+  color: #c9d1d9; 
+  font-family: 'Segoe UI', system-ui, sans-serif; 
+  overflow-x: hidden; 
+}
 /* 🔐 Login Screen */
-.login-wrapper { display: flex; justify-content: center; align-items: center; height: 100vh; }
-.login-box { background: #161b22; padding: 40px; border-radius: 12px; border: 1px solid #30363d; text-align: center; width: 350px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
+.login-wrapper { display: flex; justify-content: center; align-items: center; height: 100vh; padding: 20px; box-sizing: border-box; }
+.login-box { background: #161b22; padding: 40px; border-radius: 12px; border: 1px solid #30363d; text-align: center; width: 100%; max-width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); box-sizing: border-box; }
 .title-glow { color: #58a6ff; text-shadow: 0 0 10px rgba(88,166,255,0.4); margin-bottom: 5px; }
 .subtitle { color: #8b949e; margin-bottom: 30px; font-size: 0.9em; letter-spacing: 1px; }
 .login-box input { width: 100%; padding: 14px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #30363d; background: #010409; color: white; box-sizing: border-box; outline: none; transition: 0.3s; }
@@ -261,7 +275,7 @@ onUnmounted(() => {
 .error-msg { color: #f85149; margin-top: 15px; font-size: 0.9em; }
 
 /* 📊 Dashboard */
-.dashboard-container { padding: 30px; max-width: 1400px; margin: 0 auto; }
+.dashboard-container { padding: 30px; max-width: 1400px; margin: 0 auto; box-sizing: border-box; }
 .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 15px; margin-bottom: 30px; }
 .version-tag { font-size: 0.4em; vertical-align: top; background: #e34c26; padding: 2px 6px; border-radius: 4px; color: white; }
 .header-actions { display: flex; align-items: center; gap: 15px; }
@@ -272,7 +286,7 @@ onUnmounted(() => {
 .btn-logout:hover { color: #f85149; border-color: #f85149; }
 
 /* 🗂️ Cards & Grid */
-.grid-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 25px; }
+.grid-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
 .card { background: #161b22; padding: 25px; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
 .stats p { font-size: 1.1em; margin: 10px 0; color: #8b949e; }
 .stats strong { color: #c9d1d9; font-size: 1.2em; }
@@ -287,9 +301,10 @@ onUnmounted(() => {
 .signal.sell, .signal.strong_sell { color: #f85149; text-shadow: 0 0 8px rgba(248,81,73,0.4); }
 .signal.hold { color: #8b949e; }
 .actions { margin-top: 20px; }
-.btn-start { background: linear-gradient(180deg, #2ea043 0%, #238636 100%); color: white; padding: 14px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; font-size: 1.1em; }
+.btn-start, .btn-stop { padding: 14px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; font-size: 1.1em; color: white; }
+.btn-start { background: linear-gradient(180deg, #2ea043 0%, #238636 100%); }
 .btn-start:hover { filter: brightness(1.2); box-shadow: 0 0 15px rgba(46,160,67,0.4); }
-.btn-stop { background: linear-gradient(180deg, #f85149 0%, #da3633 100%); color: white; padding: 14px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; font-size: 1.1em; }
+.btn-stop { background: linear-gradient(180deg, #f85149 0%, #da3633 100%); }
 .btn-stop:hover { filter: brightness(1.2); box-shadow: 0 0 15px rgba(248,81,73,0.4); }
 
 /* 📜 Table */
@@ -297,10 +312,10 @@ onUnmounted(() => {
 .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .btn-refresh { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
 .btn-refresh:hover { background: #30363d; color: white; }
-.table-container { overflow-x: auto; }
-.premium-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95em; }
+.table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; } /* เลื่อนสมูทบนมือถือ */
+.premium-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95em; min-width: 700px; /* บังคับความกว้างขั้นต่ำไม่ให้ตารางเบียดกัน */ }
 .premium-table th { background: #010409; padding: 14px 15px; color: #8b949e; border-bottom: 2px solid #30363d; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85em; }
-.premium-table td { padding: 14px 15px; border-bottom: 1px solid #21262d; }
+.premium-table td { padding: 14px 15px; border-bottom: 1px solid #21262d; white-space: nowrap; }
 .premium-table tbody tr:hover { background: #1c2128; }
 .time-col { color: #8b949e; font-size: 0.9em; }
 .font-bold { font-weight: bold; color: #e6edf3; }
@@ -314,4 +329,39 @@ onUnmounted(() => {
 .text-loss { color: #f85149; font-weight: bold; }
 .text-neutral { color: #8b949e; }
 .text-center { text-align: center; color: #8b949e; padding: 30px !important; }
+
+/* ==========================================
+   📱 MOBILE RESPONSIVE (หน้าจอมือถือ)
+   ========================================== */
+@media (max-width: 768px) {
+  .dashboard-container { padding: 15px; } /* ลดขอบซ้ายขวาลงให้มีพื้นที่แสดงผลมากขึ้น */
+  
+  .header { 
+    flex-direction: column; /* เปลี่ยนให้อยู่บนล่าง */
+    align-items: flex-start; 
+    gap: 15px; 
+  }
+  
+  .header h1 { margin: 0; font-size: 1.6em; }
+  
+  .header-actions { 
+    width: 100%; 
+    justify-content: space-between; /* จัดปุ่มสถานะกับปุ่ม Logout ให้ห่างกัน */
+  }
+
+  .history-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 15px;
+  }
+
+  .btn-refresh { width: 100%; padding: 12px; } /* ปุ่ม Refresh เต็มความกว้างกดง่ายๆ */
+  
+  .card { padding: 20px; } /* ลด padding ในกล่องการ์ดลงนิดนึง */
+}
+
+@media (max-width: 480px) {
+  .login-box { padding: 30px 20px; } /* กล่อง Login ให้ขอบบางลงนิดนึงบนจอมือถือ */
+  .status-badge { font-size: 0.75em; padding: 6px 10px; }
+}
 </style>

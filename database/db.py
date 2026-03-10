@@ -22,7 +22,7 @@ class TradeHistory(Base):
     close_price = Column(Float, nullable=True)           # ราคาที่ปิดออเดอร์
     profit = Column(Float, nullable=True)                # กำไร/ขาดทุน
     status = Column(String, default="OPEN")              # สถานะ: OPEN หรือ CLOSED
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow) # เวลาที่เปิดไม้
+    timestamp = Column(DateTime, default=datetime.datetime.now) # บันทึกเวลาประเทศไทย
 
 # สร้าง Database และตารางทั้งหมด (ถ้ายังไม่มี)
 Base.metadata.create_all(bind=engine)

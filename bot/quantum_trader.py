@@ -51,7 +51,6 @@ AI_CONFIDENCE = float(os.getenv("AI_CONFIDENCE", "70.0"))
 # ตัวแปรจำว่าวันนี้ส่งสรุปไปหรือยัง (กันบอทส่งสแปมซ้ำๆ)
 last_summary_date = None
 
-# ... (ด้านล่างตั้งแต่ def send_daily_summary() ลงไป ปล่อยไว้เหมือนเดิมเป๊ะเลยครับ!) ...
 
 def send_daily_summary():
     global last_summary_date
@@ -154,13 +153,28 @@ def run_bot_cycle():
             if not account:
                 continue
                 
-            lot = calculate_lot_size(account["balance"], risk_percentage=RISK_PERCENT)
+            # 1. คำนวณ Lot เบื้องต้นจากเงินในพอร์ต
+            raw_lot = calculate_lot_size(account["balance"], risk_percentage=RISK_PERCENT)
+            
+            # 👇 [เพิ่มใหม่] 2. ตรวจสอบและปรับขนาด Lot ให้ตรงกับกฎของโบรกเกอร์ (สำคัญมาก!)
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info is None:
+                print(f"⚠️ [Trade] ไม่พบข้อมูลของเหรียญ {symbol} ข้ามการเทรด")
+                continue
+                
+            min_lot = symbol_info.volume_min  # Lot ขั้นต่ำที่โบรกยอมรับ
+            step_lot = symbol_info.volume_step # สเต็ปการเพิ่ม Lot (เช่น ทีละ 0.01 หรือ 0.1)
+            
+            # บังคับ Lot ให้ไม่ต่ำกว่าขั้นต่ำ และปัดเศษให้ตรงกับสเต็ปที่โบรกเกอร์กำหนด
+            lot = max(raw_lot, min_lot)
+            lot = round(lot / step_lot) * step_lot
+            lot = round(lot, 3) # กันทศนิยมล้น
             
             print(f"🚀 [BOT] AI ตัดสินใจเข้าเทรด {symbol} ฝั่ง {final_signal.upper()} ด้วยขนาด {lot} Lot!")
             
             result = send_order(symbol, final_signal, lot)
             
-            # 6. 💾 บันทึกประวัติลง Database
+            # 6. 💾 บันทึกประวัติลง Database (เหมือนเดิม)
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 save_new_trade(
                     ticket_id=result.order, 
@@ -179,6 +193,7 @@ def run_bot_cycle():
                     f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 send_telegram_message(msg)
+                
 # ==========================================
 # 🛑 สคริปต์สำหรับรันบอทแบบ Standalone (เปิดแยกใน Terminal)
 # ==========================================

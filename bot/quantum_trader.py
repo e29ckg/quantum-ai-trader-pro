@@ -1,6 +1,8 @@
+import os
 import time
 import MetaTrader5 as mt5
 from datetime import datetime
+from dotenv import load_dotenv # 👇 เพิ่มตัวโหลด .env
 
 # นำเข้าเครื่องมือทั้งหมดที่เราสร้างไว้
 from mt5_engine.connect import connect_mt5, get_account_info
@@ -13,24 +15,43 @@ from ai_engine.prediction_ai import predict_probability
 from risk_manager.risk_control import calculate_lot_size
 from risk_manager.trailing_stop import manage_trailing_stop
 from database.db import save_new_trade
-
 from utils.telegram_notifier import send_telegram_message
 
-# ==========================================
-# ⚙️ ตั้งค่าพื้นฐานของบอท (อัปเกรดเป็น Multi-Assets)
-# ==========================================
-# 👇 ใส่คู่เงินที่ต้องการเทรดลงไปในวงเล็บนี้ได้เลย (คั่นด้วยลูกน้ำ)
-SYMBOLS = ["BTCUSDm", "XAUUSDm", "EURUSDm"] 
+# โหลดค่าจากไฟล์ .env
+load_dotenv()
 
-# 👇 [เพิ่มใหม่] สมุดจดจำสัญญาณของแต่ละเหรียญ
+# ==========================================
+# ⚙️ ตั้งค่าพื้นฐานของบอท (ดึงจากไฟล์ .env)
+# ==========================================
+
+# 1. คู่เงินที่ต้องการเทรด (ดึงมาแล้วแยกด้วยลูกน้ำ)
+env_symbols = os.getenv("TRADE_SYMBOLS", "BTCUSDm,XAUUSDm,EURUSDm")
+SYMBOLS = [s.strip() for s in env_symbols.split(",") if s.strip()]
+
+# 2. สมุดจดจำสัญญาณของแต่ละเหรียญ
 live_signals = {sym: {"signal": "WAIT", "buy_prob": 0.0, "sell_prob": 0.0} for sym in SYMBOLS}
 
-TIMEFRAME = mt5.TIMEFRAME_M15 # กรอบเวลา 15 นาที
-RISK_PERCENT = 1.0         # ความเสี่ยง 1%
-AI_CONFIDENCE = 70.0       # ความมั่นใจ 70% ขึ้นไป
+# 3. กรอบเวลา (แปลงข้อความ M15 ให้เป็นคำสั่งของ MT5)
+tf_map = {
+    "M1": mt5.TIMEFRAME_M1,
+    "M5": mt5.TIMEFRAME_M5,
+    "M15": mt5.TIMEFRAME_M15,
+    "M30": mt5.TIMEFRAME_M30,
+    "H1": mt5.TIMEFRAME_H1,
+    "H4": mt5.TIMEFRAME_H4,
+    "D1": mt5.TIMEFRAME_D1
+}
+env_timeframe = os.getenv("TRADE_TIMEFRAME", "M15").upper()
+TIMEFRAME = tf_map.get(env_timeframe, mt5.TIMEFRAME_M15) # ถ้าใส่ผิด จะกลับไปใช้ M15 อัตโนมัติ
+
+# 4. การจัดการความเสี่ยง
+RISK_PERCENT = float(os.getenv("RISK_PERCENT", "1.0"))
+AI_CONFIDENCE = float(os.getenv("AI_CONFIDENCE", "70.0"))
 
 # ตัวแปรจำว่าวันนี้ส่งสรุปไปหรือยัง (กันบอทส่งสแปมซ้ำๆ)
 last_summary_date = None
+
+# ... (ด้านล่างตั้งแต่ def send_daily_summary() ลงไป ปล่อยไว้เหมือนเดิมเป๊ะเลยครับ!) ...
 
 def send_daily_summary():
     global last_summary_date

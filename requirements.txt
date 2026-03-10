@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-multipart
+MetaTrader5
+pandas
+numpy
+scikit-learn
+tensorflow
+xgboost
+sqlalchemy
+python-jose[cryptography]
+passlib[bcrypt]
+python-dotenv
+websockets

@@ -1,0 +1,19 @@
+# 🔒 ไฟล์ความลับ (ห้ามเอาขึ้นเด็ดขาด!)
+.env
+
+# 🐍 โฟลเดอร์จำลอง Python
+venv/
+__pycache__/
+*.pyc
+
+# 📦 โฟลเดอร์จำลอง Node.js (Frontend)
+dashboard/node_modules/
+dashboard/dist/
+
+# 💾 ไฟล์ Database และ AI Model (ถ้าไฟล์ใหญ่เกินไป GitHub จะไม่ยอมรับ)
+database/*.db
+ai_engine/*.h5
+
+# 💻 ไฟล์ระบบปฏิบัติการ
+.DS_Store
+Thumbs.db

@@ -6,7 +6,8 @@ import asyncio
 import json
 import random
 from mt5_engine.connect import connect_mt5, get_account_info
-from bot.quantum_trader import run_bot_cycle
+from bot.quantum_trader import run_bot_cycle, SYMBOLS
+import MetaTrader5 as mt5
 
 # นำเข้าโมดูลที่เราเขียนไว้แล้ว
 from api.auth import create_access_token, get_current_admin, ADMIN_USERNAME, ADMIN_PASSWORD
@@ -52,27 +53,35 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
 # 📊 API Endpoints (ต้องมี Token ถึงเข้าได้)
 # ==========================================
 @app.get("/api/trades")
-def get_trade_history(limit: int = 50, db: Session = Depends(get_db), admin: str = Depends(get_current_admin)):
-    """
-    ดึงประวัติการเทรดล่าสุดจาก Database (ป้องกันด้วย get_current_admin)
-    """
-    trades = db.query(TradeHistory).order_by(TradeHistory.timestamp.desc()).limit(limit).all()
+async def api_get_trades(current_admin: str = Depends(get_current_admin)):
+    # 👇 เรียกใช้ฟังก์ชันที่เราเพิ่งสร้างเมื่อกี้
+    from database.db import get_all_trades 
     
-    result = []
-    for t in trades:
-        result.append({
-            "id": t.id,
-            "ticket_id": t.ticket_id,
-            "symbol": t.symbol,
-            "trade_type": t.trade_type,
-            "entry_price": t.entry_price,
-            "close_price": t.close_price,
-            "profit": t.profit,
-            "status": t.status,
-            "timestamp": t.timestamp.strftime("%Y-%m-%d %H:%M:%S") if t.timestamp else "-"
-        })
+    # 1. ดึงข้อมูลประวัติการเทรดทั้งหมดจากฐานข้อมูล
+    db_trades = get_all_trades() 
+    live_trades = []
+    
+    for trade_data in db_trades:
+        # 2. ถ้าสถานะออเดอร์ยังเป็น "OPEN" ให้ไปขอดึงกำไรสดๆ จาก MT5
+        if trade_data.get("status") == "OPEN":
+            ticket = trade_data["ticket_id"]
+            
+            # เช็คว่าออเดอร์ยังวิ่งอยู่ไหม
+            positions = mt5.positions_get(ticket=ticket)
+            if positions and len(positions) > 0:
+                # 🟢 ถ้ายืนยันว่ายังวิ่งอยู่ ให้ดึงกำไร (Profit) ณ วินาทีนั้นมาใส่
+                trade_data["profit"] = positions[0].profit 
+            else:
+                # 🔴 ถ้าไม่เจอ แปลว่าออเดอร์ปิดไปแล้ว (อาจจะชน TP/SL)
+                history = mt5.history_deals_get(position=ticket)
+                if history and len(history) > 0:
+                    total_profit = sum(deal.profit for deal in history)
+                    trade_data["profit"] = total_profit
+                    trade_data["status"] = "CLOSED" # เปลี่ยนสถานะให้หน้าเว็บรู้ว่าปิดแล้ว
+                    
+        live_trades.append(trade_data)
         
-    return {"status": "success", "data": result}
+    return {"status": "success", "data": live_trades}
 
 # ==========================================
 # ⚡ WebSockets (Real-time Dashboard)
@@ -123,15 +132,16 @@ async def bot_stream_engine():
             if account:
                 account_state["balance"] = account["balance"]
                 account_state["equity"] = account["equity"]
-                # คำนวณกำไรแบบง่ายๆ (Equity - Balance)
                 bot_state["profit_today"] = account["equity"] - account["balance"]
-                bot_state["current_symbol"] = "BTCUSD"
 
-            # 📡 3. บรอดแคสต์ข้อมูลจริงขึ้นหน้าจอ Vue 3
-            await manager.broadcast({
-                "bot": bot_state,
-                "account": account_state
-            })
+                # 👇 แก้บรรทัดนี้: ให้แสดงคู่เงินทั้งหมดที่บอทกำลังเฝ้าอยู่
+                bot_state["current_symbol"] = ", ".join(SYMBOLS)
+
+                # 📡 3. บรอดแคสต์ข้อมูลจริงขึ้นหน้าจอ Vue 3
+                await manager.broadcast({
+                    "bot": bot_state,
+                    "account": account_state
+                })
             
         except Exception as e:
             print(f"⚠️ [System Warning] เกิดข้อผิดพลาดในลูปบอท: {e}")

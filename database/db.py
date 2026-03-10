@@ -47,3 +47,33 @@ def save_new_trade(ticket_id: int, symbol: str, trade_type: str, entry_price: fl
         print(f"❌ [DB Error] ไม่สามารถบันทึกออเดอร์ได้: {e}")
     finally:
         db.close()
+
+def get_all_trades():
+    """
+    ดึงข้อมูลประวัติการเทรดทั้งหมดจากฐานข้อมูล เพื่อส่งไปให้หน้าเว็บ
+    """
+    db = SessionLocal()
+    try:
+        # ดึงข้อมูลทั้งหมด เรียงจากใหม่สุด (desc) ไปเก่าสุด
+        trades = db.query(TradeHistory).order_by(TradeHistory.timestamp.desc()).all()
+        
+        # แปลงเป็น Dictionary ให้ FastAPI อ่านง่ายๆ
+        result = []
+        for t in trades:
+            result.append({
+                "id": t.id,
+                "ticket_id": t.ticket_id,
+                "symbol": t.symbol,
+                "trade_type": t.trade_type,
+                "entry_price": t.entry_price,
+                "close_price": t.close_price,
+                "profit": t.profit,
+                "status": t.status,
+                "timestamp": t.timestamp.strftime("%Y-%m-%d %H:%M:%S") if t.timestamp else ""
+            })
+        return result
+    except Exception as e:
+        print(f"❌ [DB Error] ไม่สามารถดึงประวัติการเทรดได้: {e}")
+        return []
+    finally:
+        db.close()

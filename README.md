@@ -1,153 +1,98 @@
-### 📂 โครงสร้างโปรเจกต์ทั้งหมด (Project Directory Tree)
-
-จัดเรียงโฟลเดอร์และไฟล์ตามนี้เลยครับ:
-
-```text
-quantum-ai-trader-pro/
-│
-├── ai_engine/                   # 🧠 ระบบสมองกล AI
-│   ├── market_structure.py      # จับเทรนด์ตลาด
-│   ├── strategy_selector.py     # เลือกกลยุทธ์เบื้องต้น
-│   ├── liquidity_ai.py          # ตรวจจับ Stop Loss Cluster
-│   ├── prediction_ai.py         # Deep Learning (LSTM)
-│   └── quantum_lstm_model.h5    # ไฟล์โมเดลสมอง AI (ถูกสร้างตอนเทรน)
-│
-├── api/                         # 📡 ระบบ API และ WebSockets
-│   ├── auth.py                  # ระบบ JWT Security (Login)
-│   └── server.py                # FastAPI Server (Endpoints)
-│
-├── backtest/                    # ⏳ ระบบจำลองการเทรดย้อนหลัง
-│   └── engine.py                # ตัวคำนวณสถิติและ Drawdown
-│
-├── bot/                         # 🤖 ตัวสั่งการบอทหลัก
-│   └── quantum_trader.py        # ลูปการทำงานหลัก (ดึง Data -> AI -> Trade)
-│
-├── database/                    # 💾 ระบบฐานข้อมูล
-│   ├── db.py                    # SQLAlchemy ORM
-│   └── quantum_trades.db        # ไฟล์ SQLite (ถูกสร้างอัตโนมัติ)
-│
-├── mt5_engine/                  # ⚙️ ระบบเชื่อมต่อ MetaTrader 5
-│   ├── connect.py               # จัดการการเชื่อมต่อ Terminal
-│   ├── data_feed.py             # ดึงแท่งเทียนย้อนหลัง
-│   └── trade_executor.py        # ส่งคำสั่งซื้อ/ขาย
-│
-├── risk_manager/                # 🛡️ ระบบจัดการความเสี่ยง
-│   ├── risk_control.py          # คำนวณ Lot Size ตามหน้าตัก
-│   └── trailing_stop.py         # ระบบเลื่อน Stop Loss ล็อกกำไร
-│
-├── dashboard/                   # 🖥️ หน้าเว็บควบคุม (Vue 3)
-│   ├── public/
-│   ├── src/
-│   │   ├── App.vue              # หน้า Dashboard หลัก
-│   │   └── main.js              # ไฟล์เริ่มต้น Vue
-│   ├── package.json             # ไฟล์จัดการไลบรารี Frontend
-│   └── Dockerfile               # สคริปต์แพ็คหน้าเว็บลง Nginx
-│
-├── docker-compose.yml           # 📦 ไฟล์รันระบบทั้งหมดในคำสั่งเดียว
-├── Dockerfile                   # 📦 สคริปต์แพ็ค Backend ลง Python Container
-├── requirements.txt             # 📚 รายชื่อไลบรารี Python (pip)
-├── run_backtest.py              # 🚀 สคริปต์สั่งรัน Backtest
-└── README.md                    # 📖 คู่มือการใช้งานโปรเจกต์
-
-```
-
----
 # 🧠 Quantum AI Trader PRO
 
-**Institutional-Grade Algorithmic Trading Platform & SaaS** ระบบเทรดอัตโนมัติขั้นสูงที่ผสานการวิเคราะห์สภาพคล่องของตลาด (Liquidity Concepts) เข้ากับปัญญาประดิษฐ์ (Deep Learning LSTM) พร้อมหน้า Dashboard ควบคุมแบบ Real-time
+ระบบเทรดอัตโนมัติระดับสถาบันการเงิน (Institutional Grade Auto-Trading System) ผสานพลังของปัญญาประดิษฐ์ Deep Learning (LSTM) เข้ากับหลักการเทรดแบบ Smart Money Concepts (SMC) พร้อมหน้าต่างควบคุม (Dashboard) แบบ Real-time ผ่าน Web Browser
+
+## ✨ ฟีเจอร์หลัก (Key Features)
+* **AI Deep Learning (LSTM):** วิเคราะห์ความน่าจะเป็นของทิศทางราคา (Probability) จากกราฟย้อนหลัง
+* **SMC Liquidity Filter:** กรองสัญญาณหลอก เทรดเฉพาะตอนที่มีการกวาดสภาพคล่อง (Liquidity Sweep)
+* **Multi-Assets Scanning:** สแกนและเทรดได้หลายคู่เงินพร้อมกัน (เช่น BTCUSDm, XAUUSDm, EURUSDm)
+* **Auto Risk Management:** คำนวณ Lot Size อัตโนมัติจาก % ความเสี่ยง และมีระบบ Trailing Stop ล็อกกำไร
+* **Real-time Dashboard:** หน้าเว็บ Vue 3 ควบคุมบอทและดูประวัติการเทรดสดๆ พร้อมระบบ WebSockets
 
 ---
 
-## ✨ Features (ความสามารถหลัก)
+## 💻 ความต้องการของระบบ (System Requirements)
 
-- **Smart Money Concepts (SMC):** ตรวจจับ Liquidity Sweep และ Stop Loss Clusters เพื่อหาจุดเข้าเทรดที่ได้เปรียบระดับสถาบัน
-- **Deep Learning Prediction:** ใช้โมเดล LSTM วิเคราะห์ Time-series เพื่อประเมินความน่าจะเป็น (Probability) ในการไปต่อของราคา
-- **Advanced Risk Management:** คำนวณ Lot Size อัตโนมัติตามความเสี่ยงที่รับได้ พร้อมระบบ Trailing Stop เลื่อน Stop Loss ล็อกกำไรเมื่อถูกทาง
-- **Real-time Web Dashboard:** ควบคุมการทำงานของบอทและดูสถานะพอร์ต/ออเดอร์แบบสดๆ ผ่าน Vue 3 และ WebSockets (Low Latency)
-- **High-Performance Backtesting:** เอนจินจำลองการเทรดย้อนหลังเพื่อหาค่า Win Rate, Profit Factor และ Max Drawdown
-- **Secure SaaS Architecture:** ระบบยืนยันตัวตนด้วย JWT Token สำหรับแอดมิน พร้อมฐานข้อมูลเก็บบันทึกประวัติการเทรด
-
----
-
-## 🛠️ Technology Stack (เทคโนโลยีที่ใช้)
-
-- **Backend / AI:** Python 3.10, FastAPI, TensorFlow/Keras, Pandas, Scikit-learn
-- **Trading Engine:** MetaTrader 5 (MQL5 / Python API)
-- **Frontend:** Vue 3, Composition API, HTML/CSS
-- **Database:** SQLite (รองรับการอัปเกรดเป็น PostgreSQL)
-- **Deployment:** Docker, Docker Compose, Nginx
+1. **OS:** Windows 10 หรือ 11 (จำเป็นต้องใช้ Windows เพื่อรัน MetaTrader 5)
+2. **Python:** **เวอร์ชัน 3.10.x** (⚠️ *สำคัญมาก: แนะนำ 3.10.11 เพื่อความเสถียรของ TensorFlow ไม่แนะนำให้ใช้ 3.11 หรือ 3.12*)
+3. **Node.js:** เวอร์ชัน 18.0 ขึ้นไป (สำหรับรันหน้าเว็บ Vue 3)
+4. **MetaTrader 5 (MT5):** ติดตั้งโปรแกรมและล็อกอินบัญชีเทรด (Demo/Real) ให้เรียบร้อย
+5. **C++ Redistributable:** ต้องติดตั้ง [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) (เพื่อไม่ให้ TensorFlow Error)
 
 ---
 
-## ⚙️ Prerequisites (สิ่งที่ต้องเตรียม)
+## 🛠️ ขั้นตอนการติดตั้ง (Installation Guide)
 
-⚠️ **ข้อควรระวัง:** ไลบรารี `MetaTrader5` ของ Python ต้องการระบบปฏิบัติการ **Windows** ในการเชื่อมต่อกับ Terminal
-1. Windows OS หรือ Windows VPS (แนะนำ VPS สเปค 2 Core / 4GB RAM ขึ้นไป)
-2. ติดตั้ง [MetaTrader 5 Terminal](https://www.metatrader5.com/) และล็อกอินบัญชีเทรด
-3. ติดตั้ง [Docker Desktop สำหรับ Windows](https://www.docker.com/products/docker-desktop/)
-4. Python 3.10+ และ Node.js (สำหรับการรันแบบ Development)
-
----
-
-## 🚀 Installation & Deployment (วิธีติดตั้งและใช้งาน)
-
-### 1. การติดตั้งแบบ Local Development (สำหรับทดสอบ)
-เปิด Terminal และรันคำสั่งต่อไปนี้:
-
-**ส่วนของ Backend:**
+### 1. โคลนโปรเจกต์และตั้งค่า Backend (Python)
+เปิด Terminal (Command Prompt) แล้วรันคำสั่งตามนี้:
 ```bash
-# ติดตั้งไลบรารี
-pip install -r requirements.txt
+# 1. สร้าง Environment ด้วย Python 3.10
+py -3.10 -m venv venv
 
-# รันเซิร์ฟเวอร์ FastAPI
-uvicorn api.server:app --reload
+# 2. เปิดใช้งาน Environment
+venv\Scripts\activate
+
+# 3. ติดตั้งไลบรารีทั้งหมด
+pip install -r requirements.txt
 
 ```
 
-**ส่วนของ Frontend:**
+### 2. ตั้งค่า Frontend (Vue 3)
+
+เปิด Terminal หน้าต่างใหม่ แล้วเข้าไปที่โฟลเดอร์ dashboard:
 
 ```bash
 cd dashboard
 npm install
-npm run dev
 
 ```
 
-### 2. การรันระบบบน Production ด้วย Docker 🐳
+### 3. ตั้งค่าไฟล์ความลับ (.env)
 
-เปิด Docker Desktop ตรวจสอบว่า MetaTrader 5 เปิดอยู่ จากนั้นรันคำสั่ง:
+สร้างไฟล์ชื่อ `.env` ไว้ที่โฟลเดอร์นอกสุดของโปรเจกต์ และใส่ข้อมูลดังนี้:
+
+```env
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_secure_password
+SECRET_KEY=your_random_secret_key_here
+
+MT5_LOGIN=12345678
+MT5_PASSWORD=your_mt5_password
+MT5_SERVER=Exness-MT5Trial6
+
+```
+
+---
+
+## 🚀 วิธีการใช้งาน (How to Run)
+
+**ขั้นตอนที่ 1: สอนสมอง AI (ทำแค่ครั้งแรก หรือสัปดาห์ละครั้ง)**
+ก่อนรันบอท ต้องสร้างไฟล์สมองกล `.h5` ให้มันก่อน (อย่าลืมเปิดโปรแกรม MT5 ไว้ด้วย)
 
 ```bash
-docker-compose up -d --build
+venv\Scripts\activate
+python train_ai.py
 
 ```
 
-ระบบจะทำการ Build ทั้ง Backend และ Frontend ขึ้นมาพร้อมกัน เมื่อเสร็จสิ้นสามารถเข้าใช้งาน Dashboard ได้ที่ `http://localhost` (หรือ IP ของเซิร์ฟเวอร์)
+*(รอจนกว่าระบบจะขึ้นว่า ✅ บันทึกสมอง AI สำเร็จ!)*
+
+**ขั้นตอนที่ 2: เปิดใช้งานระบบทั้งหมด**
+เพียงแค่ดับเบิ้ลคลิกที่ไฟล์ **`start.bat`** ระบบจะทำการเปิดทั้ง Backend (FastAPI) และ Frontend (Vue 3) ให้อัตโนมัติ จากนั้นเข้าใช้งานผ่านเบราว์เซอร์ได้ที่: `http://localhost:5173`
 
 ---
 
-## 🔒 Default Login (การเข้าสู่ระบบ)
+## 🔧 ข้อเสนอแนะการแก้ไขปัญหา (Troubleshooting)
 
-เมื่อเข้าสู่หน้า Dashboard จะพบกับหน้า Login ให้ใช้ข้อมูลเริ่มต้นดังนี้ (สามารถแก้ไขได้ใน `api/server.py` หรือ `.env`):
-
-* **Username:** `admin`
-* **Password:** `quantum2026`
-
----
-
-## 📊 การรันระบบ Backtest
-
-เพื่อทดสอบประสิทธิภาพของ AI กับข้อมูลย้อนหลัง ให้รันคำสั่ง:
-
-```bash
-python run_backtest.py
-
-```
-
-ระบบจะดึงข้อมูลจาก MT5 มาประมวลผลผ่าน Liquidity AI และ LSTM พร้อมสรุปผล Report ทางหน้าจอและสร้างไฟล์ `backtest_result.csv`
+| ปัญหาที่พบ (Error) | สาเหตุและวิธีแก้ไข |
+| --- | --- |
+| **หน้าเว็บ Profit / Loss เป็นเครื่องหมาย `-**` | ยังไม่ได้เปิดออเดอร์ หรือลืมเปลี่ยนชื่อฟังก์ชันดึงฐานข้อมูลใน `api/server.py` ให้ตรงกับใน `database/db.py` (เช่น `get_all_trades`) |
+| **AI วิเคราะห์ได้ `50.0%` เป๊ะๆ ตลอดเวลา** | บอทหาไฟล์สมองกลไม่เจอ ให้รันคำสั่ง `python train_ai.py` เพื่อสร้างสมองกลขึ้นมาใหม่ |
+| **Error `msvcp140_1.dll` ตอนรันเซิร์ฟเวอร์** | Windows ขาดไฟล์รันไทม์ ให้ดาวน์โหลดและติดตั้ง [VC++ Redistributable](https://www.google.com/url?sa=E&source=gmail&q=https://aka.ms/vs/17/release/vc_redist.x64.exe) |
+| **Error `Failed to load _pywrap_tensorflow_internal**` | คุณกำลังใช้ Python เวอร์ชันที่ใหม่เกินไป (เช่น 3.12) ให้ลบโฟลเดอร์ `venv` ทิ้ง แล้วสร้างใหม่ด้วย Python 3.10 |
+| **หน้าเว็บขึ้น `Cannot connect to AI Server` (บนโดเมนจริง)** | ติดปัญหา CORS ให้ไปแก้ใน `api/server.py` เปลี่ยน `allow_origins=["*"]` และแก้ไฟล์ `start.bat` ให้รัน Backend บน Host `0.0.0.0` |
+| **บอทวิเคราะห์ได้สัญญาณ BUY/SELL แต่ไม่ยอมเปิดออเดอร์** | ลืมกดปุ่ม **"Algo Trading"** ในแถบเมนูด้านบนของโปรแกรม MT5 ให้เป็นสีเขียว |
 
 ---
 
-## 🤝 Disclaimer
-
-*ระบบนี้ถูกพัฒนาขึ้นเพื่อการศึกษาและการวิจัยเชิงปริมาณ (Quantitative Research) การลงทุนมีความเสี่ยง ผู้ใช้งานควรทำการ Backtest และ Forward Test ในบัญชี Demo ให้มั่นใจก่อนนำไปรันบนบัญชีเงินจริง*
+*Developed with ❤️ by Quantum AI Team*

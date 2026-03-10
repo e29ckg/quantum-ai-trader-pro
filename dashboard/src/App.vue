@@ -38,13 +38,26 @@
         </section>
 
         <section class="card control-panel">
-          <h2>Bot Controls</h2>
-          <p>Trading Pair: <strong class="symbol-text">{{ botData.current_symbol }}</strong></p>
-          <p>Live AI Signal: 
-            <strong class="signal" :class="botData.last_signal">
-              {{ botData.last_signal.toUpperCase() }}
-            </strong>
-          </p>
+          <h2>🤖 AI Signal Radar</h2>
+          
+          <div class="signal-grid">
+            <div v-for="(data, sym) in botData.live_signals" :key="sym" class="signal-box">
+              <div class="signal-header">
+                <span class="symbol-text">{{ sym }}</span>
+                <span class="signal-badge" :class="data.signal.toLowerCase()">{{ data.signal }}</span>
+              </div>
+              
+              <div class="signal-bar-container">
+                <div class="signal-bar buy" :style="{ width: data.buy_prob + '%' }"></div>
+                <div class="signal-bar sell" :style="{ width: data.sell_prob + '%' }"></div>
+              </div>
+              
+              <div class="signal-stats">
+                <span class="buy-text">B: {{ data.buy_prob.toFixed(1) }}%</span>
+                <span class="sell-text">S: {{ data.sell_prob.toFixed(1) }}%</span>
+              </div>
+            </div>
+          </div>
           
           <div class="actions">
             <button v-if="!isRunning" @click="toggleBot('start')" class="btn-start">🚀 START AI TRADER</button>
@@ -124,7 +137,7 @@ const ws = ref(null);
 const isConnected = ref(false);
 const isRunning = ref(false);
 const account = ref({ balance: 0, equity: 0 });
-const botData = ref({ current_symbol: '-', last_signal: 'HOLD', profit_today: 0 });
+const botData = ref({ current_symbol: '-', last_signal: 'HOLD', profit_today: 0, live_signals: {} });
 const tradeHistory = ref([]);
 
 // Helpers
@@ -329,6 +342,22 @@ onUnmounted(() => {
 .text-loss { color: #f85149; font-weight: bold; }
 .text-neutral { color: #8b949e; }
 .text-center { text-align: center; color: #8b949e; padding: 30px !important; }
+
+/* 🎯 AI Radar Grid */
+.signal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.signal-box { background: #010409; border: 1px solid #30363d; border-radius: 8px; padding: 12px; }
+.signal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.signal-badge { font-size: 0.75em; font-weight: bold; padding: 3px 6px; border-radius: 4px; text-transform: uppercase; }
+.signal-badge.buy, .signal-badge.strong_buy { background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid #3fb950; }
+.signal-badge.sell, .signal-badge.strong_sell { background: rgba(248,81,73,0.2); color: #f85149; border: 1px solid #f85149; }
+.signal-badge.hold, .signal-badge.wait { background: rgba(139,148,158,0.2); color: #8b949e; border: 1px solid #8b949e; }
+.signal-bar-container { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #21262d; margin-bottom: 8px; }
+.signal-bar { transition: width 0.5s ease-in-out; }
+.signal-bar.buy { background: #3fb950; }
+.signal-bar.sell { background: #f85149; }
+.signal-stats { display: flex; justify-content: space-between; font-size: 0.75em; font-weight: bold; }
+.buy-text { color: #3fb950; }
+.sell-text { color: #f85149; }
 
 /* ==========================================
    📱 MOBILE RESPONSIVE (หน้าจอมือถือ)

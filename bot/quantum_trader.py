@@ -1,5 +1,6 @@
 import time
 import MetaTrader5 as mt5
+from datetime import datetime
 
 # นำเข้าเครื่องมือทั้งหมดที่เราสร้างไว้
 from mt5_engine.connect import connect_mt5, get_account_info
@@ -13,20 +14,78 @@ from risk_manager.risk_control import calculate_lot_size
 from risk_manager.trailing_stop import manage_trailing_stop
 from database.db import save_new_trade
 
+from utils.telegram_notifier import send_telegram_message
+
 # ==========================================
 # ⚙️ ตั้งค่าพื้นฐานของบอท (อัปเกรดเป็น Multi-Assets)
 # ==========================================
 # 👇 ใส่คู่เงินที่ต้องการเทรดลงไปในวงเล็บนี้ได้เลย (คั่นด้วยลูกน้ำ)
 SYMBOLS = ["BTCUSDm", "XAUUSDm", "EURUSDm"] 
 
+# 👇 [เพิ่มใหม่] สมุดจดจำสัญญาณของแต่ละเหรียญ
+live_signals = {sym: {"signal": "WAIT", "buy_prob": 0.0, "sell_prob": 0.0} for sym in SYMBOLS}
+
 TIMEFRAME = mt5.TIMEFRAME_M15 # กรอบเวลา 15 นาที
 RISK_PERCENT = 1.0         # ความเสี่ยง 1%
 AI_CONFIDENCE = 70.0       # ความมั่นใจ 70% ขึ้นไป
+
+# ตัวแปรจำว่าวันนี้ส่งสรุปไปหรือยัง (กันบอทส่งสแปมซ้ำๆ)
+last_summary_date = None
+
+def send_daily_summary():
+    global last_summary_date
+    now = datetime.now()
+    
+    # 🕒 เช็คเวลา 23:00 น. (5 ทุ่ม) และเช็คว่าวันนี้ยังไม่ได้ส่ง
+    if now.hour == 23 and last_summary_date != now.date():
+        
+        # 1. กำหนดช่วงเวลาดึงประวัติเทรด (ตั้งแต่เที่ยงคืน ถึง 5 ทุ่ม 59)
+        start_of_day = datetime(now.year, now.month, now.day)
+        end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
+        
+        # 2. ดึงประวัติจาก MT5
+        deals = mt5.history_deals_get(start_of_day, end_of_day)
+        
+        total_profit = 0.0
+        total_trades = 0
+        win_trades = 0
+        
+        if deals:
+            for deal in deals:
+                # เช็คเฉพาะออเดอร์ที่ปิดไปแล้ว (DEAL_ENTRY_OUT = 1)
+                if deal.entry == 1: 
+                    # รวมกำไรสุทธิ (หักค่าธรรมเนียมและดอกเบี้ยข้ามคืนแล้ว)
+                    net_profit = deal.profit + deal.swap + deal.commission
+                    total_profit += net_profit
+                    total_trades += 1
+                    if net_profit > 0:
+                        win_trades += 1
+                        
+        # 3. คำนวณอัตราชนะ (Win Rate)
+        win_rate = (win_trades / total_trades * 100) if total_trades > 0 else 0
+        emoji = "🟢" if total_profit >= 0 else "🔴"
+        
+        # 4. สร้างข้อความรายงานลูกพี่
+        msg = (
+            f"📊 <b>สรุปผลประกอบการรายวัน (Daily Report)</b>\n"
+            f"📅 <b>วันที่:</b> {now.strftime('%d/%m/%Y')}\n\n"
+            f"📈 <b>ออเดอร์ที่ปิดแล้ว:</b> {total_trades} ไม้\n"
+            f"🏆 <b>Win Rate:</b> {win_rate:.1f}%\n"
+            f"💰 <b>Net Profit:</b> {emoji} <b>${total_profit:.2f}</b>\n\n"
+            f"💤 พักผ่อนได้เลยครับลูกพี่ บอทจะเฝ้ากราฟต่อให้เอง!"
+        )
+        
+        # 5. ส่งเข้า Telegram ทันที
+        send_telegram_message(msg)
+        last_summary_date = now.date()
+        print("✅ [Telegram] ส่งสรุปยอดกำไรรายวัน 23:00 น. เรียบร้อยแล้ว!")
 
 def run_bot_cycle():
     """
     วัฏจักรการทำงานของบอท 1 รอบ (จะวนสแกนทุกคู่เงินใน SYMBOLS)
     """
+    send_daily_summary()
+    
     for symbol in SYMBOLS:
         # 1. 🛡️ เลื่อน Stop Loss ล็อกกำไรให้ออเดอร์ของคู่เงินนี้ก่อน
         manage_trailing_stop(symbol, trailing_points=500)
@@ -52,6 +111,12 @@ def run_bot_cycle():
         prob = predict_probability(df)
         buy_prob = prob * 100
         sell_prob = (1 - prob) * 100
+
+        live_signals[symbol] = {
+            "signal": liq_signal.upper(),
+            "buy_prob": buy_prob,
+            "sell_prob": sell_prob
+        }
 
         print(f"[{time.strftime('%H:%M:%S')}] 🔍 {symbol} | SMC: {liq_signal.upper()} | AI BUY: {buy_prob:.1f}% | AI SELL: {sell_prob:.1f}%")
 
@@ -82,6 +147,17 @@ def run_bot_cycle():
                     trade_type=final_signal, 
                     entry_price=result.price
                 )
+                # 👇 [เพิ่มใหม่] 7. 📱 ส่งแจ้งเตือนเข้า Telegram
+                msg = (
+                    f"🚨 <b>QUANTUM AI EXECUTED</b> 🚨\n\n"
+                    f"🎯 <b>Signal:</b> {final_signal.upper()}\n"
+                    f"💱 <b>Symbol:</b> {symbol}\n"
+                    f"💰 <b>Entry Price:</b> {result.price}\n"
+                    f"📦 <b>Lot Size:</b> {lot}\n"
+                    f"🤖 <b>AI Confidence:</b> {buy_prob if final_signal in ['buy', 'strong_buy'] else sell_prob:.1f}%\n"
+                    f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                send_telegram_message(msg)
 # ==========================================
 # 🛑 สคริปต์สำหรับรันบอทแบบ Standalone (เปิดแยกใน Terminal)
 # ==========================================

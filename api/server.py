@@ -6,7 +6,7 @@ import asyncio
 import json
 import random
 from mt5_engine.connect import connect_mt5, get_account_info
-from bot.quantum_trader import run_bot_cycle, SYMBOLS
+from bot.quantum_trader import run_bot_cycle, SYMBOLS, live_signals
 import MetaTrader5 as mt5
 
 # นำเข้าโมดูลที่เราเขียนไว้แล้ว
@@ -134,7 +134,7 @@ async def bot_stream_engine():
                 account_state["equity"] = account["equity"]
                 bot_state["profit_today"] = account["equity"] - account["balance"]
 
-                # 👇 แก้บรรทัดนี้: ให้แสดงคู่เงินทั้งหมดที่บอทกำลังเฝ้าอยู่
+                bot_state["live_signals"] = live_signals
                 bot_state["current_symbol"] = ", ".join(SYMBOLS)
 
                 # 📡 3. บรอดแคสต์ข้อมูลจริงขึ้นหน้าจอ Vue 3

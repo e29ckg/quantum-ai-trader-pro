@@ -13,7 +13,7 @@ from ai_engine.strategy_selector import choose_strategy
 from ai_engine.liquidity_ai import liquidity_filter
 from ai_engine.prediction_ai import predict_probability
 from risk_manager.risk_control import calculate_lot_size
-from risk_manager.trailing_stop import manage_trailing_stop
+from risk_manager.trailing_stop import manage_dynamic_trailing_stop
 from database.db import save_new_trade
 from utils.telegram_notifier import send_telegram_message
 
@@ -107,8 +107,8 @@ def run_bot_cycle():
     send_daily_summary()
     
     for symbol in SYMBOLS:
-        # 1. 🛡️ เลื่อน Stop Loss ล็อกกำไรให้ออเดอร์ของคู่เงินนี้ก่อน
-        manage_trailing_stop(symbol, trailing_points=500)
+        # 1. 🛡️ เลื่อน Stop Loss แบบ Dynamic (ATR) ล็อกกำไรให้ออเดอร์
+        manage_dynamic_trailing_stop(symbol, timeframe=TIMEFRAME, atr_multiplier=2.0)
 
         # เช็คว่ามีออเดอร์ของคู่เงินนี้เปิดค้างอยู่ไหม
         positions = mt5.positions_get(symbol=symbol)

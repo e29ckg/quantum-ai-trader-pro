@@ -128,7 +128,8 @@ def run_bot_cycle():
         if liq_signal == "hold":
             continue # ถ้าราคาไซด์เวย์ ข้ามไปคู่ถัดไปเลย
 
-        prob = predict_probability(df)
+        # prob = predict_probability(df)
+        prob = predict_probability(df, symbol) # 👈 โยนชื่อเหรียญให้มันไปหาสมองถูกตัว
         buy_prob = prob * 100
         sell_prob = (1 - prob) * 100
 

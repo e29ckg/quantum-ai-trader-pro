@@ -7,10 +7,14 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from mt5_engine.connect import connect_mt5
 
+from dotenv import load_dotenv
+load_dotenv()
+env_symbols = os.environ.get("TRADE_SYMBOLS", "BTCUSDm,XAUUSDm,EURUSDm")
+SYMBOLS = [s.strip() for s in env_symbols.split(",") if s.strip()]
+
 # ==========================================
 # ⚙️ ตั้งค่าการเทรน V2.0 (อัปเกรดความฉลาด)
 # ==========================================
-SYMBOL = "XAUUSDm"            # ใช้ทองคำเป็นแม่แบบในการเรียนรู้ (กราฟผันผวนดี)
 TIMEFRAME = mt5.TIMEFRAME_M15 # เรียนจากกราฟ 15 นาที
 NUM_BARS = 10000              # ดึงข้อมูลย้อนหลัง 10,000 แท่ง! (ของเดิม 2,000)
 SEQ_LENGTH = 60               # ให้ AI ดูกราฟย้อนหลัง 60 แท่ง เพื่อทายแท่งถัดไป
@@ -44,70 +48,55 @@ def create_dataset(data, seq_length):
     return np.array(X), np.array(y)
 
 if __name__ == "__main__":
-    print("🤖 [AI V2.0] กำลังปลุกสมอง Quant Analyst...")
-    if not connect_mt5():
-        exit()
-
-    print(f"📥 กำลังดึงข้อมูลกราฟ {SYMBOL} จำนวน {NUM_BARS} แท่ง เพื่อส่งให้ AI เรียนรู้...")
-    rates = mt5.copy_rates_from_pos(SYMBOL, TIMEFRAME, 0, NUM_BARS)
+    if not connect_mt5(): exit()
+    
+    # 🌟 [เพิ่มใหม่] วนลูปสร้างสมองทีละเหรียญ!
+    for symbol in SYMBOLS:
+        print(f"\n==========================================")
+        print(f"🧠 [AI V3.0] กำลังสร้างสมองเฉพาะทางสำหรับ: {symbol}")
+        print(f"==========================================")
+        
+        rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, NUM_BARS)
+        if rates is None:
+            print(f"❌ ดึงข้อมูล {symbol} ไม่ได้ ข้ามไปก่อน")
+            continue
+            
+        df = pd.DataFrame(rates)
+        if 'tick_volume' in df.columns:
+            df.rename(columns={'tick_volume': 'volume'}, inplace=True)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
+        
+        df = add_indicators(df)
+        features = ['open', 'high', 'low', 'close', 'volume', 'EMA_20', 'EMA_50', 'RSI_14']
+        data_to_scale = df[features].values
+        
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        scaled_data = scaler.fit_transform(data_to_scale)
+        X, y = create_dataset(scaled_data, SEQ_LENGTH)
+        
+        split_ratio = int(len(X) * 0.8)
+        X_train, y_train = X[:split_ratio], y[:split_ratio]
+        X_test, y_test = X[split_ratio:], y[split_ratio:]
+        
+        # สร้างโมเดล
+        model = Sequential([
+            Input(shape=(SEQ_LENGTH, len(features))),
+            LSTM(128, return_sequences=True),
+            Dropout(0.3),
+            LSTM(64),
+            Dropout(0.3),
+            Dense(32, activation='relu'),
+            Dense(1, activation='sigmoid')
+        ])
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        
+        print(f"🚀 เริ่มเทรน {symbol}...")
+        model.fit(X_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE, validation_data=(X_test, y_test), verbose=1)
+        
+        # 💾 บันทึกสมองแยกชื่อตามเหรียญ
+        os.makedirs("ai_engine", exist_ok=True)
+        model.save(f"ai_engine/model_{symbol}.h5")
+        print(f"✅ บันทึกสมอง {symbol} สำเร็จ!\n")
+        
     mt5.shutdown()
-
-    if rates is None:
-        print("❌ ดึงข้อมูลกราฟไม่ได้ โปรดเช็คโบรกเกอร์")
-        exit()
-
-    # 1. เตรียมข้อมูล
-    df = pd.DataFrame(rates)
-    df.rename(columns={'tick_volume': 'volume'}, inplace=True) # 👈 เพิ่มบรรทัดนี้เพื่อแปลภาษาให้ AI เข้าใจ
-    df['time'] = pd.to_datetime(df['time'], unit='s')
-    
-    # 🌟 2. อัดฉีดอินดิเคเตอร์เข้าสมอง AI
-    df = add_indicators(df)
-    
-    # เลือกคอลัมน์ที่จะให้มันวิเคราะห์ (มี 8 ตัวแปรแล้ว! ทรงพลังมาก)
-    features = ['open', 'high', 'low', 'close', 'volume', 'EMA_20', 'EMA_50', 'RSI_14']
-    data_to_scale = df[features].values
-
-    # 3. สเกลข้อมูล (บีบตัวเลขให้อยู่ระหว่าง 0 ถึง 1 ให้ AI คำนวณง่าย)
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data_to_scale)
-
-    X, y = create_dataset(scaled_data, SEQ_LENGTH)
-
-    # 4. แบ่งข้อมูล 80% ไว้เรียน (Train) และ 20% ไว้สอบวัดความแม่นยำ (Test)
-    split_ratio = int(len(X) * 0.8)
-    X_train, y_train = X[:split_ratio], y[:split_ratio]
-    X_test, y_test = X[split_ratio:], y[split_ratio:]
-
-    print(f"🧠 ข้อมูลพร้อมแล้ว! เริ่มกระบวนการสร้างสมอง V2.0...")
-    print(f"📚 ข้อมูลเรียน: {len(X_train)} ชุด | ข้อมูลสอบ: {len(X_test)} ชุด")
-
-    # ==========================================
-    # 🧠 โครงสร้างสมอง AI (Deep Learning Architecture)
-    # ==========================================
-    model = Sequential([
-        Input(shape=(SEQ_LENGTH, len(features))), # แก้ Warning เรื่อง Input shape
-        LSTM(128, return_sequences=True),         # เซลล์สมองชั้นที่ 1 (ใหญ่ขึ้น)
-        Dropout(0.3),                             # ป้องกันการจำข้อสอบ (Overfitting)
-        LSTM(64),                                 # เซลล์สมองชั้นที่ 2
-        Dropout(0.3),
-        Dense(32, activation='relu'),
-        Dense(1, activation='sigmoid')            # ผลลัพธ์: 0-1 (ความน่าจะเป็น)
-    ])
-
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
-    # 🚀 5. เริ่มฝึกฝน
-    print("🚀 [AI] กำลังเริ่มกระบวนการฝึกฝนขั้นสูง (ใช้เวลาสักครู่)...")
-    history = model.fit(
-        X_train, y_train,
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        validation_data=(X_test, y_test),
-        verbose=1
-    )
-
-    # 💾 6. บันทึกสมอง
-    os.makedirs("ai_engine", exist_ok=True)
-    model.save("ai_engine/quantum_lstm_model.h5")
-    print("✅ [AI V2.0] อัปเกรดและบันทึกสมอง AI สำเร็จ! โคตรฉลาดบอกเลย!")
+    print("🎉 สร้างสมองครบทุกเหรียญเรียบร้อยแล้ว!")

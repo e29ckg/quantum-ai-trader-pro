@@ -11,7 +11,7 @@ from mt5_engine.trade_executor import send_order
 from ai_engine.market_structure import detect_trend
 from ai_engine.strategy_selector import choose_strategy
 from ai_engine.liquidity_ai import liquidity_filter
-from ai_engine.prediction_ai import predict_probability
+from ai_engine.prediction_ai import predict_probability, update_brain_daily
 from risk_manager.risk_control import calculate_lot_size
 from risk_manager.trailing_stop import manage_dynamic_trailing_stop
 from database.db import save_new_trade
@@ -99,6 +99,18 @@ def send_daily_summary():
         send_telegram_message(msg)
         last_summary_date = now.date()
         print("✅ [Telegram] ส่งสรุปยอดกำไรรายวัน 23:00 น. เรียบร้อยแล้ว!")
+        
+        # ==========================================
+        # 🦉 [เพิ่มใหม่] ระบบ Night School: เรียนเสริมรอบดึก
+        # ==========================================
+        print("\n🦉 [Night School] ส่งรายงานเสร็จแล้ว ได้เวลาบอททบทวนบทเรียนของวันนี้...")
+        for symbol in SYMBOLS:
+            # ดึงกราฟของวันนี้ (เอาสัก 500 แท่งล่าสุดของ M15 มาทบทวนก็พอ)
+            df_today = get_candles(symbol, TIMEFRAME, bars=500)
+            if df_today is not None:
+                update_brain_daily(df_today, symbol)
+                
+        print("🎓 [Night School] บอทเรียนเสริมครบทุกเหรียญ! อัปเกรดสมองพร้อมลุยพรุ่งนี้!\n")
 
 def run_bot_cycle():
     """

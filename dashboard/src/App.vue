@@ -57,11 +57,48 @@
                 <span class="sell-text">S: {{ data.sell_prob.toFixed(1) }}%</span>
               </div>
             </div>
+            <div v-if="Object.keys(botData.live_signals || {}).length === 0" style="color:#8b949e; font-size: 0.9em; grid-column: 1 / -1; text-align: center; padding: 10px;">
+                *รอการเชื่อมต่อ... หรือไม่มีคู่เงินที่กำลังสแกน
+            </div>
           </div>
           
           <div class="actions">
             <button v-if="!isRunning" @click="toggleBot('start')" class="btn-start">🚀 START AI TRADER</button>
             <button v-else @click="toggleBot('stop')" class="btn-stop">🛑 STOP AI TRADER</button>
+          </div>
+
+          <div class="confidence-control">
+            <h3 style="margin-top: 0; color: #58a6ff; font-size: 1.1em; border-bottom: 1px solid #30363d; padding-bottom: 10px;">
+              ⚙️ AI System Settings
+            </h3>
+            
+            <div class="setting-group">
+                <div class="confidence-header">
+                    <span class="confidence-title">🤖 AI Confidence Threshold</span>
+                    <span class="confidence-value text-green">{{ formSettings.confidence }}%</span>
+                </div>
+                <input type="range" min="50.0" max="80.0" step="0.5" v-model="formSettings.confidence" class="confidence-slider" />
+            </div>
+
+            <div class="setting-group">
+                <div class="confidence-header">
+                    <span class="confidence-title">💰 Risk Per Trade (%)</span>
+                    <span class="confidence-value text-purple">{{ formSettings.risk_percent }}%</span>
+                </div>
+                <input type="range" min="0.1" max="5.0" step="0.1" v-model="formSettings.risk_percent" class="confidence-slider risk-slider" />
+            </div>
+
+            <div class="setting-group" style="margin-bottom: 15px;">
+                <div class="confidence-header">
+                    <span class="confidence-title">💱 Trading Symbols</span>
+                </div>
+                <input type="text" v-model="formSettings.symbols" class="symbol-input" placeholder="e.g. BTCUSDm,XAUUSDm" />
+                <p style="font-size: 11px; color: #8b949e; margin-top: 5px; margin-bottom: 0;">*คั่นแต่ละเหรียญด้วยเครื่องหมายลูกน้ำ (,) ตัวพิมพ์เล็ก/ใหญ่มีผล</p>
+            </div>
+            
+            <button @click="handleSaveSettings" class="btn-save-settings">
+                💾 APPLY ALL SETTINGS
+            </button>
           </div>
         </section>
       </main>
@@ -129,9 +166,9 @@ const loginError = ref('');
 // ดึง Hostname ปัจจุบันที่ผู้ใช้เปิดเว็บอยู่
 const currentHost = window.location.hostname;
 
-// สร้าง URL สำหรับต่อ API และ WebSockets ให้เปลี่ยนตาม Host อัตโนมัติ!
-const API_URL = `http://${currentHost}`;
-const WS_URL = `ws://${currentHost}/ws/status`;
+// URL สำหรับ API และ WS วิ่งผ่าน Nginx (ไม่ต้องใส่ :8000)
+const API_URL = `http://${currentHost}`; 
+const WS_URL = `ws://${currentHost}/ws/status`; 
 
 const ws = ref(null);
 const isConnected = ref(false);
@@ -139,6 +176,13 @@ const isRunning = ref(false);
 const account = ref({ balance: 0, equity: 0 });
 const botData = ref({ current_symbol: '-', last_signal: 'HOLD', profit_today: 0, live_signals: {} });
 const tradeHistory = ref([]);
+
+// State สำหรับเก็บค่าการตั้งค่าจาก Database
+const formSettings = ref({
+    confidence: 51.0,
+    risk_percent: 1.0,
+    symbols: "BTCUSDm,XAUUSDm"
+});
 
 // Helpers
 const formatMoney = (val) => Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -216,6 +260,48 @@ const fetchTradeHistory = async () => {
 };
 
 // ==========================================
+// 🎛️ ดึงและบันทึกค่าการตั้งค่าศูนย์กลาง (เซฟลง DB)
+// ==========================================
+const fetchSettings = async () => {
+    try {
+        const res = await fetch(`${API_URL}/api/settings/bot`);
+        if (res.ok) {
+            const data = await res.json();
+            formSettings.value.confidence = data.confidence;
+            formSettings.value.risk_percent = data.risk_percent;
+            formSettings.value.symbols = data.symbols;
+        }
+    } catch (error) {
+        console.error("Failed to fetch settings:", error);
+    }
+};
+
+const handleSaveSettings = async () => {
+    try {
+        const payload = {
+            confidence: parseFloat(formSettings.value.confidence),
+            risk_percent: parseFloat(formSettings.value.risk_percent),
+            symbols: formSettings.value.symbols
+        };
+        
+        const res = await fetch(`${API_URL}/api/settings/bot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+            alert(`✅ บันทึกการตั้งค่าลงฐานข้อมูลสำเร็จ!\n\nAI Accuracy: ${payload.confidence}%\nRisk/Trade: ${payload.risk_percent}%\nActive Symbols: ${payload.symbols}`);
+        } else {
+            alert("❌ บันทึกข้อมูลไม่สำเร็จ");
+        }
+    } catch (error) {
+        console.error("Error updating settings:", error);
+        alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
+    }
+};
+
+// ==========================================
 // ⚡ ระบบ WebSockets (รับค่า Real-time)
 // ==========================================
 const connectWebSocket = () => {
@@ -247,6 +333,7 @@ const toggleBot = (action) => {
 // ==========================================
 const initDashboard = () => {
   fetchTradeHistory();
+  fetchSettings(); // ดึงการตั้งค่าล่าสุดจาก Database
   connectWebSocket();
   setInterval(fetchTradeHistory, 10000); // อัปเดตตารางทุกๆ 10 วินาที
 };
@@ -267,14 +354,9 @@ onUnmounted(() => {
    🎨 สไตล์ CSS ระดับ Institutional
    ========================================== */
 :global(html), :global(body), :global(#app) { 
-  margin: 0; 
-  padding: 0; 
-  width: 100%; 
-  min-height: 100vh; 
-  background-color: #0d1117; 
-  color: #c9d1d9; 
-  font-family: 'Segoe UI', system-ui, sans-serif; 
-  overflow-x: hidden; 
+  margin: 0; padding: 0; width: 100%; min-height: 100vh; 
+  background-color: #0d1117; color: #c9d1d9; 
+  font-family: 'Segoe UI', system-ui, sans-serif; overflow-x: hidden; 
 }
 /* 🔐 Login Screen */
 .login-wrapper { display: flex; justify-content: center; align-items: center; height: 100vh; padding: 20px; box-sizing: border-box; }
@@ -310,9 +392,6 @@ onUnmounted(() => {
 /* 🤖 Controls */
 .symbol-text { color: #f0b37e; font-size: 1.2em; }
 .signal { font-size: 1.2em; font-weight: bold; }
-.signal.buy, .signal.strong_buy { color: #3fb950; text-shadow: 0 0 8px rgba(63,185,80,0.4); }
-.signal.sell, .signal.strong_sell { color: #f85149; text-shadow: 0 0 8px rgba(248,81,73,0.4); }
-.signal.hold { color: #8b949e; }
 .actions { margin-top: 20px; }
 .btn-start, .btn-stop { padding: 14px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; font-size: 1.1em; color: white; }
 .btn-start { background: linear-gradient(180deg, #2ea043 0%, #238636 100%); }
@@ -320,13 +399,28 @@ onUnmounted(() => {
 .btn-stop { background: linear-gradient(180deg, #f85149 0%, #da3633 100%); }
 .btn-stop:hover { filter: brightness(1.2); box-shadow: 0 0 15px rgba(248,81,73,0.4); }
 
+/* 👇 สไตล์กล่องควบคุม Settings */
+.confidence-control { margin-top: 25px; padding: 20px; background-color: #010409; border-radius: 8px; border: 1px solid #30363d; }
+.setting-group { margin-bottom: 20px; }
+.confidence-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.confidence-title { color: #c9d1d9; font-weight: bold; font-size: 0.95em; }
+.confidence-value { font-weight: bold; font-size: 1.1em; }
+.text-green { color: #3fb950; text-shadow: 0 0 8px rgba(63,185,80,0.4); }
+.text-purple { color: #d2a8ff; text-shadow: 0 0 8px rgba(210,168,255,0.4); }
+.confidence-slider { width: 100%; cursor: pointer; accent-color: #3fb950; height: 6px; background: #21262d; border-radius: 3px; outline: none; }
+.risk-slider { accent-color: #d2a8ff; }
+.symbol-input { width: 100%; padding: 12px; background: #161b22; border: 1px solid #30363d; color: #f0b37e; border-radius: 6px; font-weight: bold; font-size: 1em; box-sizing: border-box; outline: none; transition: 0.2s; }
+.symbol-input:focus { border-color: #58a6ff; }
+.btn-save-settings { width: 100%; padding: 12px; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+.btn-save-settings:hover { background: #30363d; color: white; border-color: #8b949e; }
+
 /* 📜 Table */
 .history-section { margin-top: 25px; }
 .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .btn-refresh { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
 .btn-refresh:hover { background: #30363d; color: white; }
-.table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; } /* เลื่อนสมูทบนมือถือ */
-.premium-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95em; min-width: 700px; /* บังคับความกว้างขั้นต่ำไม่ให้ตารางเบียดกัน */ }
+.table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; } 
+.premium-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95em; min-width: 700px; }
 .premium-table th { background: #010409; padding: 14px 15px; color: #8b949e; border-bottom: 2px solid #30363d; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85em; }
 .premium-table td { padding: 14px 15px; border-bottom: 1px solid #21262d; white-space: nowrap; }
 .premium-table tbody tr:hover { background: #1c2128; }
@@ -360,37 +454,19 @@ onUnmounted(() => {
 .sell-text { color: #f85149; }
 
 /* ==========================================
-   📱 MOBILE RESPONSIVE (หน้าจอมือถือ)
+   📱 MOBILE RESPONSIVE 
    ========================================== */
 @media (max-width: 768px) {
-  .dashboard-container { padding: 15px; } /* ลดขอบซ้ายขวาลงให้มีพื้นที่แสดงผลมากขึ้น */
-  
-  .header { 
-    flex-direction: column; /* เปลี่ยนให้อยู่บนล่าง */
-    align-items: flex-start; 
-    gap: 15px; 
-  }
-  
+  .dashboard-container { padding: 15px; } 
+  .header { flex-direction: column; align-items: flex-start; gap: 15px; }
   .header h1 { margin: 0; font-size: 1.6em; }
-  
-  .header-actions { 
-    width: 100%; 
-    justify-content: space-between; /* จัดปุ่มสถานะกับปุ่ม Logout ให้ห่างกัน */
-  }
-
-  .history-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 15px;
-  }
-
-  .btn-refresh { width: 100%; padding: 12px; } /* ปุ่ม Refresh เต็มความกว้างกดง่ายๆ */
-  
-  .card { padding: 20px; } /* ลด padding ในกล่องการ์ดลงนิดนึง */
+  .header-actions { width: 100%; justify-content: space-between; }
+  .history-header { flex-direction: column; align-items: stretch; gap: 15px; }
+  .btn-refresh { width: 100%; padding: 12px; } 
+  .card { padding: 20px; } 
 }
-
 @media (max-width: 480px) {
-  .login-box { padding: 30px 20px; } /* กล่อง Login ให้ขอบบางลงนิดนึงบนจอมือถือ */
+  .login-box { padding: 30px 20px; } 
   .status-badge { font-size: 0.75em; padding: 6px 10px; }
 }
 </style>

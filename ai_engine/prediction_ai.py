@@ -17,8 +17,6 @@ except Exception as e:
     print(f"\n⚠️ [AI Warning] ไม่สามารถโหลดสมองกล TensorFlow ได้ ({e})")
     print("⚠️ [AI Warning] บอทจะสลับไปใช้ 'โหมดจำลองการคิด' แทนชั่วคราว\n")
 
-MODEL_PATH = "ai_engine/quantum_lstm_model.h5"
-# global_model = None # ตัวแปรเก็บสมองไว้ใน RAM จะได้ไม่ต้องโหลดไฟล์ใหม่ทุกครั้งที่สแกนเหรียญ
 global_models = {}
 
 def add_indicators(df):
@@ -35,16 +33,19 @@ def add_indicators(df):
     rs = gain / loss
     df['RSI_14'] = 100 - (100 / (1 + rs))
     
-    df.fillna(0, inplace=True) # อุดรอยรั่ว
+    # 🛠️ [แก้ไข] ลบแถวที่มี NaN ทิ้งไปเลย ให้เหมือนตอนเทรนเป๊ะๆ
+    df.dropna(inplace=True) 
     return df
 
 def predict_probability(df: pd.DataFrame, symbol: str, lookback: int = 60) -> float:
     global global_models
 
     if not TF_AVAILABLE: return random.uniform(0.55, 0.85)
-    if df is None or len(df) < lookback: return 0.50
+    
+    # เผื่อแท่งเทียนหายไปตอน dropna เลยต้องขอเผื่อไว้เยอะๆ หน่อย
+    if df is None or len(df) < lookback + 50: return 0.50
 
-    model_path = f"ai_engine/model_{symbol}.h5" # 👈 ค้นหาสมองตามชื่อเหรียญ
+    model_path = f"ai_engine/model_{symbol}.h5" 
     if not os.path.exists(model_path): return 0.50 
 
     # 🛡️ โหลดสมองใส่ RAM (ถ้ายังไม่เคยโหลด)
@@ -67,6 +68,7 @@ def predict_probability(df: pd.DataFrame, symbol: str, lookback: int = 60) -> fl
         scaler = MinMaxScaler(feature_range=(0, 1))
         scaled_data = scaler.fit_transform(data_to_scale)
         
+        # ตัดเอาแค่ส่วนท้ายสุด (ล่าสุด) มาใช้ทำนาย
         recent_data = scaled_data[-lookback:]
         X_input = np.array([recent_data])
         
@@ -74,6 +76,7 @@ def predict_probability(df: pd.DataFrame, symbol: str, lookback: int = 60) -> fl
         prediction = global_models[symbol].predict(X_input, verbose=0)
         return float(prediction[0][0])
     except Exception as e:
+        print(f"⚠️ [AI Predict Error] {symbol}: {e}")
         return 0.50
     
 def update_brain_daily(df: pd.DataFrame, symbol: str):
@@ -85,7 +88,7 @@ def update_brain_daily(df: pd.DataFrame, symbol: str):
     model_path = f"ai_engine/model_{symbol}.h5"
     
     if symbol not in global_models or not os.path.exists(model_path):
-        return # ถ้าไม่มีสมองให้ข้ามไป
+        return 
         
     print(f"🧠 [Night School] บอทกำลังเรียนรู้กราฟของวันนี้เพิ่มเติมสำหรับ {symbol}...")
     
@@ -97,11 +100,11 @@ def update_brain_daily(df: pd.DataFrame, symbol: str):
         df_ai = add_indicators(df_ai)
         features = ['open', 'high', 'low', 'close', 'volume', 'EMA_20', 'EMA_50', 'RSI_14']
         
-        data_to_scale = df_ai[features].dropna().values
+        data_to_scale = df_ai[features].values
         scaler = MinMaxScaler(feature_range=(0, 1))
         scaled_data = scaler.fit_transform(data_to_scale)
         
-        # เตรียมข้อมูลสั้นๆ (เช่น 500 แท่งล่าสุด)
+        # เตรียมข้อมูล
         SEQ_LENGTH = 60
         X, y = [], []
         for i in range(len(scaled_data) - SEQ_LENGTH):
@@ -111,13 +114,13 @@ def update_brain_daily(df: pd.DataFrame, symbol: str):
             
         X, y = np.array(X), np.array(y)
         
-        # เทรนทับสมองเดิมเบาๆ แค่ 5 รอบ (เรียนรู้พฤติกรรมใหม่)
+        # เทรนทับสมองเดิมเบาๆ แค่ 5 รอบ
         model = global_models[symbol]
         model.fit(X, y, epochs=5, batch_size=32, verbose=0) 
         
         # เซฟสมองก้อนใหม่ทับของเดิม
         model.save(model_path)
-        global_models[symbol] = model # อัปเดตใน RAM ด้วย
+        global_models[symbol] = model 
         print(f"✅ [Night School] {symbol} อัปเดตความรู้เสร็จสิ้น! สมองฉลาดขึ้นแล้ว!")
         
     except Exception as e:

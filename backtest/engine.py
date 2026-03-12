@@ -14,15 +14,12 @@ class BacktestEngine:
         self.trades = []
         self.equity_curve = [initial_capital]
 
-    def execute_trade(self, entry_time, entry_price, signal, exit_price):
-        """
-        จำลองการเปิดและปิดออเดอร์ (คำนวณกำไร/ขาดทุน)
-        """
+    def execute_trade(self, entry_time, entry_price, signal, exit_price, sl_distance):
+        
         # คำนวณจำนวนเงินที่ยอมเสียได้ในไม้นี้
         risk_amount = self.balance * self.risk_per_trade
         
-        # สมมติระยะ Stop Loss ห่างไป 1% ของราคา (เพื่อใช้คำนวณ Position Size แบบคร่าวๆ)
-        sl_distance = entry_price * 0.01 
+        # ใช้ sl_distance ที่คำนวณจาก ATR (ตอนรันลูป) มาหารเลย
         position_size = risk_amount / sl_distance
 
         # คำนวณกำไร/ขาดทุน

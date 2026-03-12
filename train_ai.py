@@ -7,10 +7,8 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from mt5_engine.connect import connect_mt5
 
-from dotenv import load_dotenv
-load_dotenv()
-env_symbols = os.environ.get("TRADE_SYMBOLS", "BTCUSDm,XAUUSDm,EURUSDm")
-SYMBOLS = [s.strip() for s in env_symbols.split(",") if s.strip()]
+# 👇 นำเข้า Database ของเรามาใช้แทน .env
+from database.db import get_bot_settings_db
 
 # ==========================================
 # ⚙️ ตั้งค่าการเทรน V2.0 (อัปเกรดความฉลาด)
@@ -50,7 +48,13 @@ def create_dataset(data, seq_length):
 if __name__ == "__main__":
     if not connect_mt5(): exit()
     
-    # 🌟 [เพิ่มใหม่] วนลูปสร้างสมองทีละเหรียญ!
+    # 🌟 [แก้ไขใหม่] ดึงรายชื่อเหรียญล่าสุดจาก Database (ที่ตั้งค่าไว้หน้าเว็บ)
+    settings = get_bot_settings_db()
+    SYMBOLS = [s.strip() for s in settings.symbols.split(",") if s.strip()]
+    
+    print(f"📥 อ่านรายชื่อเหรียญจาก Database: {SYMBOLS}")
+    
+    # วนลูปสร้างสมองทีละเหรียญ!
     for symbol in SYMBOLS:
         print(f"\n==========================================")
         print(f"🧠 [AI V3.0] กำลังสร้างสมองเฉพาะทางสำหรับ: {symbol}")

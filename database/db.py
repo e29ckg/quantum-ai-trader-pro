@@ -1,79 +1,116 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker
-import datetime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
-# ใช้ SQLite เป็นฐานข้อมูล (ไฟล์จะถูกสร้างอัตโนมัติชื่อ quantum_trades.db)
-DATABASE_URL = "sqlite:///./quantum_trades.db"
+# ==========================================
+# ⚙️ ตั้งค่าการเชื่อมต่อ SQLite
+# ==========================================
+SQLALCHEMY_DATABASE_URL = "sqlite:///./quantum_bot.db"
 
-# ตั้งค่า Connection (check_same_thread=False จำเป็นสำหรับ SQLite ใน FastAPI)
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# 📊 โครงสร้างตารางเก็บประวัติการเทรด (Trade History)
+# ==========================================
+# 🗄️ โครงสร้างตาราง (Models)
+# ==========================================
+
+# 1. ตารางประวัติการเทรด (ของเดิม)
 class TradeHistory(Base):
     __tablename__ = "trade_history"
 
     id = Column(Integer, primary_key=True, index=True)
-    ticket_id = Column(Integer, unique=True, index=True) # รหัสออเดอร์จาก MT5
-    symbol = Column(String, index=True)                  # คู่เงิน เช่น BTCUSD
-    trade_type = Column(String)                          # BUY หรือ SELL
-    entry_price = Column(Float)                          # ราคาที่เปิดออเดอร์
-    close_price = Column(Float, nullable=True)           # ราคาที่ปิดออเดอร์
-    profit = Column(Float, nullable=True)                # กำไร/ขาดทุน
-    status = Column(String, default="OPEN")              # สถานะ: OPEN หรือ CLOSED
-    timestamp = Column(DateTime, default=datetime.datetime.now) # บันทึกเวลาประเทศไทย
+    ticket_id = Column(Integer, unique=True, index=True)
+    symbol = Column(String, index=True)
+    trade_type = Column(String)
+    entry_price = Column(Float)
+    status = Column(String, default="OPEN") # OPEN, CLOSED
+    profit = Column(Float, default=0.0)
+    timestamp = Column(DateTime, default=datetime.now)
 
-# สร้าง Database และตารางทั้งหมด (ถ้ายังไม่มี)
+# 2. 🌟 [ตารางใหม่] เก็บการตั้งค่าบอทแบบถาวร
+class SystemSettings(Base):
+    __tablename__ = "system_settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    confidence = Column(Float, default=0.51)
+    risk_percent = Column(Float, default=1.0)
+    symbols = Column(String, default="BTCUSDm,XAUUSDm,EURUSDm")
+
+# สร้างตารางทั้งหมด (ถ้ายังไม่มี)
 Base.metadata.create_all(bind=engine)
 
-def save_new_trade(ticket_id: int, symbol: str, trade_type: str, entry_price: float):
-    """
-    ฟังก์ชันสำหรับบันทึกออเดอร์ใหม่ลง Database ทันทีที่บอทเปิดไม้สำเร็จ
-    """
+# ==========================================
+# 🛠️ ฟังก์ชันจัดการข้อมูล (CRUD)
+# ==========================================
+
+# --- ส่วนของการตั้งค่า (Settings) ---
+def get_bot_settings_db():
+    """ดึงการตั้งค่าล่าสุด หากไม่มีให้สร้างค่าเริ่มต้น"""
     db = SessionLocal()
-    try:
-        new_trade = TradeHistory(
-            ticket_id=ticket_id, 
-            symbol=symbol, 
-            trade_type=trade_type.upper(), 
-            entry_price=entry_price
+    settings = db.query(SystemSettings).first()
+    
+    if not settings:
+        settings = SystemSettings(
+            confidence=0.51, 
+            risk_percent=1.0, 
+            symbols="BTCUSDm,XAUUSDm,EURUSDm"
         )
-        db.add(new_trade)
+        db.add(settings)
         db.commit()
-        print(f"💾 [DB] บันทึกออเดอร์ใหม่ Ticket #{ticket_id} ลงฐานข้อมูลแล้ว")
-    except Exception as e:
-        db.rollback()
-        print(f"❌ [DB Error] ไม่สามารถบันทึกออเดอร์ได้: {e}")
-    finally:
-        db.close()
+        db.refresh(settings)
+        
+    db.close()
+    return settings
+
+def update_bot_settings_db(new_confidence: float, new_risk: float, new_symbols: str):
+    """อัปเดตการตั้งค่าลงฐานข้อมูล"""
+    db = SessionLocal()
+    settings = db.query(SystemSettings).first()
+    
+    if not settings:
+        settings = SystemSettings()
+        db.add(settings)
+        
+    settings.confidence = new_confidence
+    settings.risk_percent = new_risk
+    settings.symbols = new_symbols
+    
+    db.commit()
+    db.close()
+
+# --- ส่วนของประวัติการเทรด (Trade History) ---
+def save_new_trade(ticket_id: int, symbol: str, trade_type: str, entry_price: float):
+    db = SessionLocal()
+    new_trade = TradeHistory(
+        ticket_id=ticket_id,
+        symbol=symbol,
+        trade_type=trade_type,
+        entry_price=entry_price
+    )
+    db.add(new_trade)
+    db.commit()
+    db.close()
 
 def get_all_trades():
-    """
-    ดึงข้อมูลประวัติการเทรดทั้งหมดจากฐานข้อมูล เพื่อส่งไปให้หน้าเว็บ
-    """
     db = SessionLocal()
-    try:
-        # ดึงข้อมูลทั้งหมด เรียงจากใหม่สุด (desc) ไปเก่าสุด
-        trades = db.query(TradeHistory).order_by(TradeHistory.timestamp.desc()).all()
-        
-        # แปลงเป็น Dictionary ให้ FastAPI อ่านง่ายๆ
-        result = []
-        for t in trades:
-            result.append({
-                "id": t.id,
-                "ticket_id": t.ticket_id,
-                "symbol": t.symbol,
-                "trade_type": t.trade_type,
-                "entry_price": t.entry_price,
-                "close_price": t.close_price,
-                "profit": t.profit,
-                "status": t.status,
-                "timestamp": t.timestamp.strftime("%Y-%m-%d %H:%M:%S") if t.timestamp else ""
-            })
-        return result
-    except Exception as e:
-        print(f"❌ [DB Error] ไม่สามารถดึงประวัติการเทรดได้: {e}")
-        return []
-    finally:
-        db.close()
+    # ดึงข้อมูลโดยเรียงจากเวลาล่าสุดขึ้นก่อน
+    trades = db.query(TradeHistory).order_by(TradeHistory.timestamp.desc()).all()
+    
+    result = []
+    for t in trades:
+        result.append({
+            "id": t.id,
+            "ticket_id": t.ticket_id,
+            "symbol": t.symbol,
+            "trade_type": t.trade_type,
+            "entry_price": t.entry_price,
+            "status": t.status,
+            "profit": t.profit,
+            "timestamp": t.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        })
+    db.close()
+    return result

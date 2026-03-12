@@ -200,9 +200,13 @@ def run_backtest(symbol: str, timeframe=mt5.TIMEFRAME_M15, bars=5000, confidence
         recent_data = scaled_data[i - SEQ_LENGTH : i]
         X_input = np.array([recent_data])
         pred = model.predict(X_input, verbose=0)[0][0]
-        
+                
         buy_prob = pred
         sell_prob = 1.0 - pred
+        
+        # 👇 เอาโค้ด 2 บรรทัดนี้ไปวางต่อท้าย เพื่อแอบดูตัวเลข
+        if i % 1000 == 0:
+            print(f"🔄 แท่งที่ {i} | AI มอง BUY: {buy_prob*100:.1f}% | SELL: {sell_prob*100:.1f}%")
         
         # 3. 🎯 ลั่นไกเปิดออเดอร์ใหม่ (สมมติว่าถ้า EMA20 > EMA50 เป็นเทรนขาขึ้น ค่อยเปิด BUY)
         ema_trend = "up" if current_bar['EMA_20'] > current_bar['EMA_50'] else "down"
@@ -234,5 +238,5 @@ def run_backtest(symbol: str, timeframe=mt5.TIMEFRAME_M15, bars=5000, confidence
 if __name__ == "__main__":
     if connect_mt5():
         # ทดสอบรัน Backtest ทองคำ ย้อนหลัง 10,000 แท่ง โดยตั้งเป้าความมั่นใจ AI ที่ 60%
-        run_backtest(symbol="XAUUSDm", timeframe=mt5.TIMEFRAME_M15, bars=10000, confidence_target=0.60)
+        run_backtest(symbol="XAUUSDm", timeframe=mt5.TIMEFRAME_M15, bars=10000, confidence_target=0.52)
         mt5.shutdown()

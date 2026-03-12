@@ -238,5 +238,5 @@ def run_backtest(symbol: str, timeframe=mt5.TIMEFRAME_M15, bars=5000, confidence
 if __name__ == "__main__":
     if connect_mt5():
         # ทดสอบรัน Backtest ทองคำ ย้อนหลัง 10,000 แท่ง โดยตั้งเป้าความมั่นใจ AI ที่ 60%
-        run_backtest(symbol="XAUUSDm", timeframe=mt5.TIMEFRAME_M15, bars=10000, confidence_target=0.51)
+        run_backtest(symbol="XAUUSDm", timeframe=mt5.TIMEFRAME_M15, bars=10000, confidence_target=0.54)
         mt5.shutdown()

@@ -2,6 +2,7 @@ import os
 import time
 import MetaTrader5 as mt5
 import pandas as pd
+import sqlite3
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -95,6 +96,28 @@ def apply_break_even(position, df):
         if res and res.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"🛡️ [Break-Even] ตลาดเป็นใจ! เลื่อน SL บังหน้าทุนให้ {position.symbol} ทุนปลอดภัย 100% แล้ว!")
 
+def sync_manual_order_to_db(pos):
+    """ฟังก์ชันเช็คว่ามีออเดอร์แปลกปลอม (เปิดมือ) ไหม ถ้ามีให้จดลง Database ทันที"""
+    try:
+        conn = sqlite3.connect("quantum_bot.db")
+        cursor = conn.cursor()
+        
+        # เช็คว่าเลข Ticket นี้มีในฐานข้อมูลหรือยัง?
+        cursor.execute("SELECT ticket_id FROM trade_history WHERE ticket_id = ?", (pos.ticket,))
+        if not cursor.fetchone():
+            # ถ้ายังไม่มี แปลว่าลูกพี่เพิ่งเปิดมือ! ให้บันทึกลงไปเลย
+            signal = "buy" if pos.type == mt5.ORDER_TYPE_BUY else "sell"
+            cursor.execute('''
+                INSERT INTO trade_history (ticket_id, symbol, signal, entry_price, status)
+                VALUES (?, ?, ?, ?, 'OPEN')
+            ''', (pos.ticket, pos.symbol, signal, pos.price_open))
+            conn.commit()
+            print(f"📥 [DB Sync] ตรวจพบออเดอร์เปิดมือ (Ticket: {pos.ticket}) ดึงเข้า Dashboard เรียบร้อย!")
+            
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ [DB Sync Error]: {e}")
+
 # ==========================================
 # 📊 ระบบส่งรายงานสรุปยอดประจำวัน
 # ==========================================
@@ -180,7 +203,8 @@ def run_bot_cycle(ai_confidence: float, risk_percent: float, active_symbols: lis
             
             # 🌟 [แก้ไขใหม่] วนลูปดูแลทุกออเดอร์ที่ค้างอยู่ (ทั้งบอทเปิด และลูกพี่เปิดมือ)
             for pos in positions:
-                
+                # 🌟 [เพิ่มใหม่] สั่งให้บอทจดบันทึกออเดอร์มือลงฐานข้อมูลก่อน!
+                sync_manual_order_to_db(pos)
                 # ท่าไม้ตายที่ 1: เลื่อน SL บังทุน (Break-Even)
                 apply_break_even(pos, df)
                 

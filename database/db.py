@@ -97,20 +97,28 @@ def save_new_trade(ticket_id: int, symbol: str, trade_type: str, entry_price: fl
 
 def get_all_trades():
     db = SessionLocal()
-    # ดึงข้อมูลโดยเรียงจากเวลาล่าสุดขึ้นก่อน
-    trades = db.query(TradeHistory).order_by(TradeHistory.timestamp.desc()).all()
-    
-    result = []
-    for t in trades:
-        result.append({
-            "id": t.id,
-            "ticket_id": t.ticket_id,
-            "symbol": t.symbol,
-            "trade_type": t.trade_type,
-            "entry_price": t.entry_price,
-            "status": t.status,
-            "profit": t.profit,
-            "timestamp": t.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-        })
-    db.close()
-    return result
+    try:
+        trades = db.query(TradeHistory).order_by(TradeHistory.id.desc()).limit(100).all()
+        result = []
+        for t in trades:
+            # 🛡️ เช็คก่อนว่ามีข้อมูลเวลาไหม ถ้าไม่มีให้ใส่ '-' แทน
+            time_str = "-"
+            if getattr(t, 'timestamp', None):
+                try:
+                    time_str = t.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                except AttributeError:
+                    time_str = str(t.timestamp)
+                    
+            result.append({
+                "ticket_id": t.ticket_id,
+                "symbol": t.symbol,
+                "type": getattr(t, 'trade_type', 'unknown'),
+                "entry_price": t.entry_price,
+                # ✂️ ตัด close_price ทิ้งไปแล้วครับ เพราะเราไม่ได้เก็บไว้ใน DB
+                "profit": getattr(t, 'profit', 0.0),
+                "status": t.status,
+                "timestamp": time_str
+            })
+        return result
+    finally:
+        db.close()

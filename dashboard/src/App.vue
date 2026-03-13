@@ -126,16 +126,16 @@
               <tr v-if="tradeHistory.length === 0">
                 <td colspan="7" class="text-center">Waiting for AI to execute trades...</td>
               </tr>
-              <tr v-for="trade in tradeHistory" :key="trade.id">
+              <tr v-for="trade in tradeHistory" :key="trade.ticket_id">
                 <td>#{{ trade.ticket_id }}</td>
                 <td class="time-col">{{ trade.timestamp }}</td>
                 <td class="font-bold">{{ trade.symbol }}</td>
                 <td>
-                  <span :class="['badge-type', trade.trade_type.toLowerCase()]">
-                    {{ trade.trade_type }}
+                  <span :class="['badge-type', trade.type.toLowerCase()]">
+                    {{ trade.type.toUpperCase() }}
                   </span>
                 </td>
-                <td>{{ trade.entry_price.toFixed(5) }}</td>
+                <td>{{ Number(trade.entry_price).toFixed(5) }}</td>
                 <td>
                   <span :class="['badge-status', trade.status.toLowerCase()]">
                     {{ trade.status }}

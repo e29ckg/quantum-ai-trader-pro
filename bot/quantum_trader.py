@@ -97,36 +97,28 @@ def apply_break_even(position, df):
             print(f"🛡️ [Break-Even] ตลาดเป็นใจ! เลื่อน SL บังหน้าทุนให้ {position.symbol} ทุนปลอดภัย 100% แล้ว!")
 
 def sync_manual_order_to_db(pos):
-    """ฟังก์ชันจดบันทึกออเดอร์เปิดมือ พร้อมระบบ Auto-Patch Database"""
+    """ฟังก์ชันจดบันทึกออเดอร์เปิดมือ (ใช้วันเวลาที่บันทึกลงระบบ)"""
     try:
         conn = sqlite3.connect("quantum_bot.db")
         cursor = conn.cursor()
         
-        # 🛠️ [Auto-Patch] สั่งให้มันลองสร้างคอลัมน์ time ดู ถ้ายังไม่มีมันจะสร้างให้ทันที!
-        try:
-            cursor.execute("ALTER TABLE trade_history ADD COLUMN time TEXT")
-            conn.commit()
-            print("🛠️ [DB Upgrade] สร้างคอลัมน์ 'time' ในฐานข้อมูลสำเร็จแล้ว!")
-        except:
-            pass # ถ้ามีคอลัมน์อยู่แล้ว คำสั่งนี้จะ error เงียบๆ แล้วทำงานต่อได้เลย
-            
         # เช็คว่าเลข Ticket นี้มีในฐานข้อมูลหรือยัง?
         cursor.execute("SELECT ticket_id FROM trade_history WHERE ticket_id = ?", (pos.ticket,))
         if not cursor.fetchone():
             # ถ้ายังไม่มี แปลว่าเพิ่งเปิดมือ!
             trade_type = "buy" if pos.type == mt5.ORDER_TYPE_BUY else "sell"
             
-            # แปลงเวลาจาก MT5
-            trade_time = datetime.fromtimestamp(pos.time).strftime('%Y-%m-%d %H:%M:%S')
+            # 🌟 [แก้ไขใหม่] ใช้วัน/เวลา ปัจจุบัน (ตอนที่บอทบันทึกข้อมูล)
+            record_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # บันทึกข้อมูลลงฐานข้อมูล
+            # 🌟 [อัปเกรด] เปลี่ยนไปเซฟลงคอลัมน์ 'timestamp' ตรงๆ เลย (หน้าเว็บจะได้อ่านได้ทันที)
             cursor.execute('''
-                INSERT INTO trade_history (ticket_id, symbol, trade_type, entry_price, status, time)
+                INSERT INTO trade_history (ticket_id, symbol, trade_type, entry_price, status, timestamp)
                 VALUES (?, ?, ?, ?, 'OPEN', ?)
-            ''', (pos.ticket, pos.symbol, trade_type, pos.price_open, trade_time))
+            ''', (pos.ticket, pos.symbol, trade_type, pos.price_open, record_time))
             
             conn.commit()
-            print(f"📥 [DB Sync] ตรวจพบออเดอร์เปิดมือ (Ticket: {pos.ticket}) ดึงเข้า Dashboard เรียบร้อย!")
+            print(f"📥 [DB Sync] ตรวจพบออเดอร์เปิดมือ (Ticket: {pos.ticket}) แสตมป์เวลาบันทึก: {record_time} เรียบร้อย!")
             
         conn.close()
     except Exception as e:

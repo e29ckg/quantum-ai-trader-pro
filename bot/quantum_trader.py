@@ -177,31 +177,33 @@ def run_bot_cycle(ai_confidence: float, risk_percent: float, active_symbols: lis
         # ==========================================
         positions = mt5.positions_get(symbol=symbol)
         if positions is not None and len(positions) > 0:
-            pos = positions[0]
             
-            # ท่าไม้ตายที่ 1: เลื่อน SL บังทุน (Break-Even)
-            apply_break_even(pos, df)
-            
-            # ท่าไม้ตายที่ 2: ชิงเผ่นหนีตาย (AI Reversal Exit)
-            close_trade = False
-            if pos.type == mt5.ORDER_TYPE_BUY and liq_signal in ["sell", "strong_sell"] and sell_prob >= target_confidence_percent:
-                close_trade = True
-            elif pos.type == mt5.ORDER_TYPE_SELL and liq_signal in ["buy", "strong_buy"] and buy_prob >= target_confidence_percent:
-                close_trade = True
+            # 🌟 [แก้ไขใหม่] วนลูปดูแลทุกออเดอร์ที่ค้างอยู่ (ทั้งบอทเปิด และลูกพี่เปิดมือ)
+            for pos in positions:
                 
-            if close_trade:
-                if close_mt5_position(pos, comment="AI Reversal"):
-                    msg = (
-                        f"🥷 <b>AI REVERSAL EXIT (หนีตาย)</b> 🥷\n\n"
-                        f"💱 <b>Symbol:</b> {symbol}\n"
-                        f"🚨 <b>Reason:</b> กราฟเปลี่ยนทิศ AI สั่งเผ่นทันที!\n"
-                        f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
-                    )
-                    send_telegram_message(msg)
-                    print(f"🚨 [AI Reversal] สั่งปิด {symbol} หนีตายเรียบร้อย!")
+                # ท่าไม้ตายที่ 1: เลื่อน SL บังทุน (Break-Even)
+                apply_break_even(pos, df)
+                
+                # ท่าไม้ตายที่ 2: ชิงเผ่นหนีตาย (AI Reversal Exit)
+                close_trade = False
+                if pos.type == mt5.ORDER_TYPE_BUY and liq_signal in ["sell", "strong_sell"] and sell_prob >= target_confidence_percent:
+                    close_trade = True
+                elif pos.type == mt5.ORDER_TYPE_SELL and liq_signal in ["buy", "strong_buy"] and buy_prob >= target_confidence_percent:
+                    close_trade = True
+                    
+                if close_trade:
+                    if close_mt5_position(pos, comment="AI Reversal"):
+                        msg = (
+                            f"🥷 <b>AI REVERSAL EXIT (หนีตาย)</b> 🥷\n\n"
+                            f"💱 <b>Symbol:</b> {symbol} (Ticket: {pos.ticket})\n"
+                            f"🚨 <b>Reason:</b> กราฟเปลี่ยนทิศ บอทชิงปิดไม้หนีตาย!\n"
+                            f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
+                        send_telegram_message(msg)
+                        print(f"🚨 [AI Reversal] สั่งปิด {symbol} (Ticket: {pos.ticket}) หนีตายเรียบร้อย!")
             
-            # มีออเดอร์อยู่แล้ว หรือเพิ่งปิดหนีตายไป ก็ข้ามการยิงออเดอร์ใหม่ไปก่อน
-            continue 
+            # เมื่อจัดการออเดอร์เก่าเสร็จ ก็ให้ข้ามการเปิดออเดอร์ใหม่ไปก่อน (ไม่เปิดซ้อน)
+            continue
 
         # ==========================================
         # 🚀 โซนยิงออเดอร์ใหม่ (เมื่อมือว่าง)

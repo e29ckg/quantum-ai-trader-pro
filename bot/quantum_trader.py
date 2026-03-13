@@ -269,35 +269,46 @@ def run_bot_cycle(active_symbols: list):
             min_lot, step_lot = symbol_info.volume_min, symbol_info.volume_step
             lot = round(max(raw_lot, min_lot) / step_lot) * step_lot
             
-            # 🌟🌟🌟 [ระบบใหม่] คำนวณระยะ SL อัตโนมัติด้วย ATR (ความผันผวนของตลาด) 🌟🌟🌟
+            # 🌟🌟🌟 [ระบบใหม่] คำนวณระยะ SL และ TP อัตโนมัติด้วย ATR + R:R Ratio 🌟🌟🌟
             high_low = df['high'] - df['low']
             high_close = (df['high'] - df['close'].shift()).abs()
             low_close = (df['low'] - df['close'].shift()).abs()
             tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
             atr = tr.rolling(14).mean().iloc[-1]
             
-            # 🎯 ปรับระยะห่าง (Multiplier) ตามนิสัยของคู่เงิน (หนีการสะบัด)
+            # 🎯 ปรับระยะห่างตามนิสัยคู่เงิน (atr_mult = ระยะหนีตาย SL, rr_ratio = ระยะทำกำไร TP)
             if "BTC" in symbol:
-                atr_mult = 2.5  # BTC ขี้โกง ชอบกวาดหางยาว ต้องเผื่อถึง 2.5 เท่า
+                atr_mult = 2.5  
+                rr_ratio = 2.0  # BTC วิ่งยาว ขอ R:R 1:2 (เสี่ยง 1 ได้ 2)
             elif "XAU" in symbol:
-                atr_mult = 2.0  # ทองคำสะบัดแรง เผื่อ 2.0 เท่า
+                atr_mult = 2.0  
+                rr_ratio = 2.0  # ทองคำสวิงทำกำไรดี ขอ R:R 1:2
             else:
-                atr_mult = 1.5  # คู่เงิน Forex ทั่วไป เผื่อ 1.5 เท่าก็พอ
+                atr_mult = 1.5  
+                rr_ratio = 1.5  # Forex ปกติ ขอ R:R 1:1.5
                 
             tick = mt5.symbol_info_tick(symbol)
             sl_price = 0.0
+            tp_price = 0.0
             
-            # คำนวณราคา SL ตามฝั่งที่เข้า
+            # คำนวณระยะทางแบบดิบๆ ก่อน
+            sl_distance = atr * atr_mult
+            tp_distance = sl_distance * rr_ratio
+            
+            # คำนวณราคา SL และ TP ตามฝั่งที่เข้า
             if final_signal in ["buy", "strong_buy"]:
-                sl_price = tick.ask - (atr * atr_mult)
+                sl_price = tick.ask - sl_distance
+                tp_price = tick.ask + tp_distance
             elif final_signal in ["sell", "strong_sell"]:
-                sl_price = tick.bid + (atr * atr_mult)
+                sl_price = tick.bid + sl_distance
+                tp_price = tick.bid - tp_distance
                 
-            # ปรับทศนิยม SL ให้ตรงกับคู่เงินนั้นๆ (เช่น ทองมี 2-3 ตำแหน่ง, BTC มี 2 ตำแหน่ง)
+            # ปรับทศนิยมให้ตรงกับคู่เงินนั้นๆ
             sl_price = round(sl_price, symbol_info.digits)
+            tp_price = round(tp_price, symbol_info.digits)
             
-            # 🌟 [แก้ไขใหม่] ส่งค่า sl_price ยัดเข้าไปในฟังก์ชัน send_order ด้วย!
-            result = send_order(symbol, final_signal, lot, sl=sl_price)
+            # 🌟 [แก้ไขใหม่] ส่งทั้ง sl_price และ tp_price ยัดเข้าไปในฟังก์ชัน send_order!
+            result = send_order(symbol, final_signal, lot, sl=sl_price, tp=tp_price)
             
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 save_new_trade(result.order, symbol, final_signal, result.price)
@@ -307,6 +318,7 @@ def run_bot_cycle(active_symbols: list):
                     f"💱 <b>Symbol:</b> {symbol}\n"
                     f"💰 <b>Entry:</b> {result.price}\n"
                     f"🛡️ <b>Stop Loss:</b> {sl_price} (ATR x{atr_mult})\n"
+                    f"🚀 <b>Take Profit:</b> {tp_price} (R:R 1:{rr_ratio})\n"
                     f"📦 <b>Lot:</b> {lot} (Risk: {risk_percent}%)\n"
                     f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
                 )

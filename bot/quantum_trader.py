@@ -108,10 +108,10 @@ def sync_manual_order_to_db(pos):
             # ถ้ายังไม่มี แปลว่าเพิ่งเปิดมือ!
             trade_type = "buy" if pos.type == mt5.ORDER_TYPE_BUY else "sell"
             
-            # 🌟 [แก้ไขใหม่] ใช้วัน/เวลา ปัจจุบัน (ตอนที่บอทบันทึกข้อมูล)
+            # ใช้วัน/เวลา ปัจจุบัน (ตอนที่บอทบันทึกข้อมูล)
             record_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # 🌟 [อัปเกรด] เปลี่ยนไปเซฟลงคอลัมน์ 'timestamp' ตรงๆ เลย (หน้าเว็บจะได้อ่านได้ทันที)
+            # เปลี่ยนไปเซฟลงคอลัมน์ 'timestamp' ตรงๆ เลย (หน้าเว็บจะได้อ่านได้ทันที)
             cursor.execute('''
                 INSERT INTO trade_history (ticket_id, symbol, trade_type, entry_price, status, timestamp)
                 VALUES (?, ?, ?, ?, 'OPEN', ?)
@@ -207,10 +207,11 @@ def run_bot_cycle(ai_confidence: float, risk_percent: float, active_symbols: lis
         positions = mt5.positions_get(symbol=symbol)
         if positions is not None and len(positions) > 0:
             
-            # 🌟 [แก้ไขใหม่] วนลูปดูแลทุกออเดอร์ที่ค้างอยู่ (ทั้งบอทเปิด และลูกพี่เปิดมือ)
+            # วนลูปดูแลทุกออเดอร์ที่ค้างอยู่ (ทั้งบอทเปิด และลูกพี่เปิดมือ)
             for pos in positions:
-                # 🌟 [เพิ่มใหม่] สั่งให้บอทจดบันทึกออเดอร์มือลงฐานข้อมูลก่อน!
+                # สั่งให้บอทจดบันทึกออเดอร์มือลงฐานข้อมูลก่อน!
                 sync_manual_order_to_db(pos)
+                
                 # ท่าไม้ตายที่ 1: เลื่อน SL บังทุน (Break-Even)
                 apply_break_even(pos, df)
                 
@@ -223,14 +224,24 @@ def run_bot_cycle(ai_confidence: float, risk_percent: float, active_symbols: lis
                     
                 if close_trade:
                     if close_mt5_position(pos, comment="AI Reversal"):
+                        # 🌟 [อัปเกรด] ดึงข้อมูลรายละเอียดมาโชว์ตอนปิดออเดอร์
+                        net_profit = pos.profit
+                        emoji = "🟢" if net_profit >= 0 else "🔴"
+                        profit_sign = "+" if net_profit >= 0 else ""
+                        trade_type_str = "BUY" if pos.type == mt5.ORDER_TYPE_BUY else "SELL"
+                        
                         msg = (
-                            f"🥷 <b>AI REVERSAL EXIT (หนีตาย)</b> 🥷\n\n"
+                            f"🥷 <b>AI MANAGED EXIT (ระบบช่วยปิด)</b> 🥷\n\n"
                             f"💱 <b>Symbol:</b> {symbol} (Ticket: {pos.ticket})\n"
+                            f"📦 <b>Type:</b> {trade_type_str} | <b>Lot:</b> {pos.volume}\n"
+                            f"📥 <b>Entry Price:</b> {pos.price_open:.5f}\n"
+                            f"📤 <b>Close Price:</b> {pos.price_current:.5f}\n"
+                            f"💰 <b>Net Profit:</b> {emoji} <b>{profit_sign}${net_profit:.2f}</b>\n"
                             f"🚨 <b>Reason:</b> กราฟเปลี่ยนทิศ บอทชิงปิดไม้หนีตาย!\n"
                             f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
                         )
                         send_telegram_message(msg)
-                        print(f"🚨 [AI Reversal] สั่งปิด {symbol} (Ticket: {pos.ticket}) หนีตายเรียบร้อย!")
+                        print(f"🚨 [AI Reversal] สั่งปิด {symbol} (Ticket: {pos.ticket}) | PnL: {profit_sign}${net_profit:.2f} เรียบร้อย!")
             
             # เมื่อจัดการออเดอร์เก่าเสร็จ ก็ให้ข้ามการเปิดออเดอร์ใหม่ไปก่อน (ไม่เปิดซ้อน)
             continue

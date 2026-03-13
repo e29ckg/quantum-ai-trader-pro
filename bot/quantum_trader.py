@@ -7,6 +7,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # นำเข้าเครื่องมือทั้งหมดที่เราสร้างไว้
+from database.db import save_new_trade, get_bot_settings_db, get_symbol_config
 from mt5_engine.connect import connect_mt5, get_account_info
 from mt5_engine.data_feed import get_candles
 from mt5_engine.trade_executor import send_order
@@ -16,11 +17,7 @@ from ai_engine.liquidity_ai import liquidity_filter
 from ai_engine.prediction_ai import predict_probability, update_brain_daily
 from risk_manager.risk_control import calculate_lot_size
 from risk_manager.trailing_stop import manage_dynamic_trailing_stop
-from database.db import save_new_trade
 from utils.telegram_notifier import send_telegram_message
-
-# นำเข้าฟังก์ชันดึงค่าจาก DB
-from database.db import get_bot_settings_db
 
 # โหลดค่าจากไฟล์ .env
 load_dotenv()
@@ -164,18 +161,23 @@ def send_daily_summary(active_symbols: list):
 # ==========================================
 # 🧠 วัฏจักรการทำงานหลัก (Main Loop)
 # ==========================================
-def run_bot_cycle(ai_confidence: float, risk_percent: float, active_symbols: list):
+# 🌟 [แก้ไข 1] ไม่ต้องรับค่าความมั่นใจและความเสี่ยงรวมแล้ว รับแค่รายชื่อเหรียญพอ
+def run_bot_cycle(active_symbols: list):
     send_daily_summary(active_symbols)
-    target_confidence_percent = ai_confidence * 100 
     
     for symbol in active_symbols:
+        # 🌟 [แก้ไข 2] โหลดค่า "ความมั่นใจ" และ "ความเสี่ยง" เฉพาะของเหรียญนี้เท่านั้น!
+        sym_config = get_symbol_config(symbol)
+        target_confidence_percent = sym_config["confidence"]
+        risk_percent = sym_config["risk_percent"]
+        
         if symbol not in live_signals:
             live_signals[symbol] = {"signal": "WAIT", "buy_prob": 0.0, "sell_prob": 0.0}
 
         # 1. ระบบรักษาความปลอดภัย: เลื่อน Trailing Stop (ทำตลอดเวลา)
         manage_dynamic_trailing_stop(symbol, timeframe=TIMEFRAME, atr_multiplier=2.0)
 
-        # 2. ดึงกราฟมาวิเคราะห์ "ทุกรอบ" (แก้ปัญหา WAIT 0.0% หน้าเว็บ)
+        # 2. ดึงกราฟมาวิเคราะห์ "ทุกรอบ"
         df = get_candles(symbol, TIMEFRAME, bars=200)
         if df is None:
             continue
@@ -199,7 +201,8 @@ def run_bot_cycle(ai_confidence: float, risk_percent: float, active_symbols: lis
             "sell_prob": sell_prob
         }
 
-        print(f"[{time.strftime('%H:%M:%S')}] 🔍 {symbol} | SMC: {liq_signal.upper()} | AI BUY: {buy_prob:.1f}% | AI SELL: {sell_prob:.1f}% | 🎯 เป้า: {target_confidence_percent:.1f}%")
+        # แสดงเป้าหมายรายเหรียญใน Console
+        print(f"[{time.strftime('%H:%M:%S')}] 🔍 {symbol} | SMC: {liq_signal.upper()} | AI BUY: {buy_prob:.1f}% | AI SELL: {sell_prob:.1f}% | 🎯 เป้า(แยกเหรียญ): {target_confidence_percent:.1f}%")
 
         # ==========================================
         # 🛡️ โซนจัดการออเดอร์ (เมื่อมีของอยู่ในมือ)
@@ -224,7 +227,7 @@ def run_bot_cycle(ai_confidence: float, risk_percent: float, active_symbols: lis
                     
                 if close_trade:
                     if close_mt5_position(pos, comment="AI Reversal"):
-                        # 🌟 [อัปเกรด] ดึงข้อมูลรายละเอียดมาโชว์ตอนปิดออเดอร์
+                        # ดึงข้อมูลรายละเอียดมาโชว์ตอนปิดออเดอร์
                         net_profit = pos.profit
                         emoji = "🟢" if net_profit >= 0 else "🔴"
                         profit_sign = "+" if net_profit >= 0 else ""
@@ -285,9 +288,12 @@ if __name__ == "__main__":
     if connect_mt5():
         try:
             while True:
+                # โหลดการตั้งค่าเหรียญที่จะเทรดจากหน้าเว็บหลัก (รายชื่อเหรียญ)
                 settings = get_bot_settings_db()
                 active_symbols = [s.strip() for s in settings.symbols.split(",") if s.strip()]
-                run_bot_cycle(settings.confidence, settings.risk_percent, active_symbols) 
+                
+                # 🌟 [แก้ไข 3] ส่งไปแค่ active_symbols ไม่ต้องส่ง confidence/risk รวมแล้ว
+                run_bot_cycle(active_symbols) 
                 time.sleep(10)
         except KeyboardInterrupt:
             print("\n🛑 หยุดการทำงานของบอทด้วยผู้ใช้")

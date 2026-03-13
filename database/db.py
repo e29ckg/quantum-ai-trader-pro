@@ -40,6 +40,14 @@ class SystemSettings(Base):
     risk_percent = Column(Float, default=1.0)
     symbols = Column(String, default="BTCUSDm,XAUUSDm,EURUSDm")
 
+# 🌟 ตารางใหม่สำหรับเก็บค่าแยกรายเหรียญ
+class SymbolConfig(Base):
+    __tablename__ = "symbol_configs"
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String, unique=True, index=True)
+    confidence = Column(Float, default=54.0)
+    risk_percent = Column(Float, default=1.0)
+
 # สร้างตารางทั้งหมด (ถ้ายังไม่มี)
 Base.metadata.create_all(bind=engine)
 
@@ -133,5 +141,36 @@ def get_all_trades():
                 "timestamp": time_str
             })
         return result
+    finally:
+        db.close()
+
+
+
+# 🌟 ฟังก์ชันจัดการฐานข้อมูลรายเหรียญ
+def get_symbol_config(symbol: str):
+    db = SessionLocal()
+    try:
+        config = db.query(SymbolConfig).filter(SymbolConfig.symbol == symbol).first()
+        if not config: # ถ้าเหรียญนี้เพิ่งแอดเข้ามาใหม่ ให้สร้างค่าเริ่มต้น
+            config = SymbolConfig(symbol=symbol, confidence=54.0, risk_percent=1.0)
+            db.add(config)
+            db.commit()
+            db.refresh(config)
+        return {"confidence": config.confidence, "risk_percent": config.risk_percent}
+    finally:
+        db.close()
+
+def update_symbol_config(symbol: str, confidence: float, risk_percent: float):
+    db = SessionLocal()
+    try:
+        config = db.query(SymbolConfig).filter(SymbolConfig.symbol == symbol).first()
+        if not config:
+            config = SymbolConfig(symbol=symbol, confidence=confidence, risk_percent=risk_percent)
+            db.add(config)
+        else:
+            config.confidence = confidence
+            config.risk_percent = risk_percent
+        db.commit()
+        return True
     finally:
         db.close()

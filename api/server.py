@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
+from database.db import get_symbol_config, update_symbol_config
 from pydantic import BaseModel
 import asyncio
 import json
@@ -29,6 +30,12 @@ class BotSettings(BaseModel):
     confidence: float
     risk_percent: float
     symbols: str
+
+# 🌟 สร้าง Model รับค่า
+class SymbolSettingUpdate(BaseModel):
+    confidence: float
+    risk_percent: float
+
 
 # ==========================================
 # 🔐 Authentication
@@ -68,7 +75,7 @@ async def api_get_trades(current_admin: str = Depends(get_current_admin)):
     return {"status": "success", "data": live_trades}
 
 # ==========================================
-# 🎛️ API ดึงและอัปเดตการตั้งค่าบอท (ระบบ Database)
+# 🎛️ API ดึงและอัปเดตการตั้งค่าบอท
 # ==========================================
 @app.get("/api/settings/bot")
 def get_bot_settings():
@@ -83,16 +90,13 @@ def get_bot_settings():
 @app.post("/api/settings/bot")
 def update_bot_settings(settings: BotSettings):
     """รับค่าที่ปรับแต่งจากหน้าเว็บมาเซฟลง Database"""
-    # 1. แปลงค่าให้พร้อมใช้งาน
     confidence_val = settings.confidence / 100.0
     risk_val = settings.risk_percent
     
-    # 2. จัดระเบียบเหรียญ (ไม่ใช้ .upper() แล้ว ป้องกัน MT5 หาเหรียญไม่เจอ)
     raw_symbols = settings.symbols.split(",")
     clean_symbols = [s.strip() for s in raw_symbols if s.strip()]
     symbols_str = ",".join(clean_symbols)
 
-    # 3. เซฟลง Database ทันที!
     update_bot_settings_db(confidence_val, risk_val, symbols_str)
 
     print(f"\n💾 [Database] บันทึกการตั้งค่าถาวรเรียบร้อย!")
@@ -101,6 +105,15 @@ def update_bot_settings(settings: BotSettings):
     print(f"   => Active Symbols: {symbols_str}\n")
     
     return {"status": "success"}
+
+@app.get("/api/settings/symbol/{symbol}")
+def api_get_sym_setting(symbol: str):
+    return get_symbol_config(symbol)
+
+@app.post("/api/settings/symbol/{symbol}")
+def api_update_sym_setting(symbol: str, settings: SymbolSettingUpdate):
+    update_symbol_config(symbol, settings.confidence, settings.risk_percent)
+    return {"status": "success", "message": f"Updated {symbol}"}
 
 # ==========================================
 # ⚡ WebSockets (Real-time Dashboard)
@@ -146,11 +159,9 @@ async def bot_stream_engine():
             active_symbols = [s.strip() for s in db_settings.symbols.split(",") if s.strip()]
 
             if bot_state["is_running"]:
-                # 🚀 1. โยนค่าจาก Database เข้าไปให้สมองบอทใช้งาน!
+                # 🚀 1. โยนแค่รายชื่อเหรียญไปให้สมองบอท! (ลบ parameter อื่นทิ้งหมดแล้ว)
                 await asyncio.to_thread(
                     run_bot_cycle, 
-                    db_settings.confidence,
-                    db_settings.risk_percent,
                     active_symbols
                 )
 

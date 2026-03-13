@@ -48,11 +48,11 @@
           <div class="signal-grid">
             <div v-for="(data, sym) in botData.live_signals" :key="sym" class="signal-box">
               <div class="signal-header">
-                <span class="symbol-text">{{ sym }}</span>
-                <div style="display: flex; align-items: center; gap: 5px;">
-                    <span class="signal-badge" :class="data.signal.toLowerCase()">{{ data.signal }}</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
                     <button @click="openSettingsModal(sym)" class="btn-icon-settings" title="Per-Symbol Settings">⚙️</button>
+                    <span class="symbol-text">{{ sym }}</span>
                 </div>
+                <span class="signal-badge" :class="data.signal.toLowerCase()">{{ data.signal }}</span>
               </div>
               
               <div class="signal-bar-container">
@@ -78,7 +78,7 @@
             <div class="setting-group">
                 <div class="confidence-header">
                     <span class="confidence-title">🤖 Default AI Confidence</span>
-                    <span class="confidence-value text-green">{{ formSettings.confidence }}%</span>
+                    <span class="confidence-value text-green">{{ Number(formSettings.confidence).toFixed(1) }}%</span>
                 </div>
                 <input type="range" min="50.0" max="80.0" step="0.5" v-model="formSettings.confidence" class="confidence-slider" />
             </div>
@@ -172,7 +172,7 @@
           <div class="setting-group">
               <div class="confidence-header">
                   <span class="confidence-title">🤖 Target Confidence</span>
-                  <span class="confidence-value text-green">{{ tempSettings.confidence }}%</span>
+                  <span class="confidence-value text-green">{{ Number(tempSettings.confidence).toFixed(1) }}%</span>
               </div>
               <input type="range" min="50.0" max="80.0" step="0.5" v-model="tempSettings.confidence" class="confidence-slider" />
           </div>
@@ -531,7 +531,7 @@ onUnmounted(() => {
 .text-center { text-align: center; color: #8b949e; padding: 30px !important; }
 
 /* 🎯 AI Radar Grid */
-.signal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.signal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 15px; margin-bottom: 20px; }
 .signal-box { background: #010409; border: 1px solid #30363d; border-radius: 8px; padding: 12px; }
 .signal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .symbol-text { color: #f0b37e; font-size: 1.2em; font-weight: bold; }

@@ -57,5 +57,6 @@ def send_order(symbol: str, signal: str, lot: float, sl: float = 0.0, tp: float 
         print(f"❌ [Trade] เปิดออเดอร์ล้มเหลว! Error: {result.retcode}, รายละเอียด: {result.comment}")
         return None
         
-    print(f"✅ [Trade] ยิงออเดอร์ {signal.upper()} สำเร็จ! Ticket: {result.order}, Lot: {lot}, Price: {result.price}")
+    # 🌟 [เพิ่มการโชว์ SL ใน Log]
+    print(f"✅ [Trade] ยิงออเดอร์ {signal.upper()} สำเร็จ! Ticket: {result.order}, Lot: {lot}, Price: {result.price}, SL: {sl}")
     return result

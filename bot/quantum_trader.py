@@ -269,7 +269,36 @@ def run_bot_cycle(active_symbols: list):
             min_lot, step_lot = symbol_info.volume_min, symbol_info.volume_step
             lot = round(max(raw_lot, min_lot) / step_lot) * step_lot
             
-            result = send_order(symbol, final_signal, lot)
+            # 🌟🌟🌟 [ระบบใหม่] คำนวณระยะ SL อัตโนมัติด้วย ATR (ความผันผวนของตลาด) 🌟🌟🌟
+            high_low = df['high'] - df['low']
+            high_close = (df['high'] - df['close'].shift()).abs()
+            low_close = (df['low'] - df['close'].shift()).abs()
+            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr = tr.rolling(14).mean().iloc[-1]
+            
+            # 🎯 ปรับระยะห่าง (Multiplier) ตามนิสัยของคู่เงิน (หนีการสะบัด)
+            if "BTC" in symbol:
+                atr_mult = 2.5  # BTC ขี้โกง ชอบกวาดหางยาว ต้องเผื่อถึง 2.5 เท่า
+            elif "XAU" in symbol:
+                atr_mult = 2.0  # ทองคำสะบัดแรง เผื่อ 2.0 เท่า
+            else:
+                atr_mult = 1.5  # คู่เงิน Forex ทั่วไป เผื่อ 1.5 เท่าก็พอ
+                
+            tick = mt5.symbol_info_tick(symbol)
+            sl_price = 0.0
+            
+            # คำนวณราคา SL ตามฝั่งที่เข้า
+            if final_signal in ["buy", "strong_buy"]:
+                sl_price = tick.ask - (atr * atr_mult)
+            elif final_signal in ["sell", "strong_sell"]:
+                sl_price = tick.bid + (atr * atr_mult)
+                
+            # ปรับทศนิยม SL ให้ตรงกับคู่เงินนั้นๆ (เช่น ทองมี 2-3 ตำแหน่ง, BTC มี 2 ตำแหน่ง)
+            sl_price = round(sl_price, symbol_info.digits)
+            
+            # 🌟 [แก้ไขใหม่] ส่งค่า sl_price ยัดเข้าไปในฟังก์ชัน send_order ด้วย!
+            result = send_order(symbol, final_signal, lot, sl=sl_price)
+            
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 save_new_trade(result.order, symbol, final_signal, result.price)
                 msg = (
@@ -277,6 +306,7 @@ def run_bot_cycle(active_symbols: list):
                     f"🎯 <b>Signal:</b> {final_signal.upper()}\n"
                     f"💱 <b>Symbol:</b> {symbol}\n"
                     f"💰 <b>Entry:</b> {result.price}\n"
+                    f"🛡️ <b>Stop Loss:</b> {sl_price} (ATR x{atr_mult})\n"
                     f"📦 <b>Lot:</b> {lot} (Risk: {risk_percent}%)\n"
                     f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
                 )

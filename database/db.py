@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==========================================
 # ⚙️ ตั้งค่าการเชื่อมต่อ SQLite
@@ -94,11 +94,24 @@ def save_new_trade(ticket_id: int, symbol: str, trade_type: str, entry_price: fl
     db.add(new_trade)
     db.commit()
     db.close()
-
+    
 def get_all_trades():
     db = SessionLocal()
     try:
-        trades = db.query(TradeHistory).order_by(TradeHistory.id.desc()).limit(100).all()
+        # 🌟 1. คำนวณเวลาเริ่มต้น (3 วันที่แล้ว นับจากตอนนี้)
+        three_days_ago = datetime.now() - timedelta(days=3)
+        
+        # 🌟 2. เพิ่ม .filter() เข้าไปในคำสั่งดึงข้อมูล
+        # ดึงมาเฉพาะออเดอร์ที่เวลา (timestamp) มากกว่าหรือเท่ากับ 3 วันที่แล้ว
+        # และยังคงเรียงลำดับจากใหม่ไปเก่า (desc) และจำกัดที่ 100 ไม้เหมือนเดิม
+        trades = (
+            db.query(TradeHistory)
+            .filter(TradeHistory.timestamp >= three_days_ago) 
+            .order_by(TradeHistory.id.desc())
+            .limit(100)
+            .all()
+        )
+        
         result = []
         for t in trades:
             # 🛡️ เช็คก่อนว่ามีข้อมูลเวลาไหม ถ้าไม่มีให้ใส่ '-' แทน
@@ -114,7 +127,7 @@ def get_all_trades():
                 "symbol": t.symbol,
                 "type": getattr(t, 'trade_type', 'unknown'),
                 "entry_price": t.entry_price,
-                # ✂️ ตัด close_price ทิ้งไปแล้วครับ เพราะเราไม่ได้เก็บไว้ใน DB
+                # ✂️ ตัด close_price ทิ้งไปแล้ว
                 "profit": getattr(t, 'profit', 0.0),
                 "status": t.status,
                 "timestamp": time_str

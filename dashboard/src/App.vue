@@ -18,6 +18,7 @@
       <header class="header">
         <h1>🧠 Quantum AI <span class="version-tag">PRO</span></h1>
         <div class="header-actions">
+        <button @click="panicCloseAll" class="btn-panic" title="ปิดทุกออเดอร์ทันที!">🚨 PANIC CLOSE</button>
           <button v-if="!isRunning" @click="toggleBot('start')" class="btn-start-nav">🚀 START AI</button>
           <button v-else @click="toggleBot('stop')" class="btn-stop-nav">🛑 STOP AI</button>
           
@@ -40,16 +41,27 @@
           </div>
         </section>
 
-        <section class="card control-panel">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-             <h2 style="margin: 0;">🤖 AI Signal Radar</h2>
+        <section class="card control-panel" style="grid-column: 1 / -1;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+             <h2 style="margin: 0; font-size: 1.5em;">🤖 AI Signal Radar</h2>
+             <button @click="openGlobalSettingsModal" class="btn-global-settings">
+                ⚙️ GLOBAL SETTINGS
+             </button>
+          </div>
+          
+          <div style="margin-bottom: 20px; color: #8b949e; font-size: 0.9em; display: flex; align-items: center; gap: 10px;">
+              <span>Active Symbols:</span>
+              <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                 <span v-for="sym in activeSymbolList" :key="sym" class="mini-tag">{{ sym }}</span>
+                 <span v-if="activeSymbolList.length === 0">None</span>
+              </div>
           </div>
           
           <div class="signal-grid">
             <div v-for="(data, sym) in botData.live_signals" :key="sym" class="signal-box">
               <div class="signal-header">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <button @click="openSettingsModal(sym)" class="btn-icon-settings" title="Per-Symbol Settings">⚙️</button>
+                    <button @click="openSymbolSettingsModal(sym)" class="btn-icon-settings" title="Per-Symbol Settings">⚙️</button>
                     <span class="symbol-text">{{ sym }}</span>
                 </div>
                 <span class="signal-badge" :class="data.signal.toLowerCase()">{{ data.signal }}</span>
@@ -65,70 +77,9 @@
                 <span class="sell-text">S: {{ data.sell_prob.toFixed(1) }}%</span>
               </div>
             </div>
-            <div v-if="Object.keys(botData.live_signals || {}).length === 0" style="color:#8b949e; font-size: 0.9em; grid-column: 1 / -1; text-align: center; padding: 10px;">
+            <div v-if="Object.keys(botData.live_signals || {}).length === 0" style="color:#8b949e; font-size: 0.9em; grid-column: 1 / -1; text-align: center; padding: 20px;">
                 *รอการเชื่อมต่อ... หรือไม่มีคู่เงินที่กำลังสแกน
             </div>
-          </div>
-          
-          <div class="confidence-control" style="margin-top: 25px;">
-            <h3 style="margin-top: 0; color: #58a6ff; font-size: 1.1em; border-bottom: 1px solid #30363d; padding-bottom: 10px;">
-              ⚙️ Global AI Settings & Symbols
-            </h3>
-
-            <div class="setting-group">
-                <div class="confidence-header">
-                    <span class="confidence-title">🤖 Default AI Confidence</span>
-                    <span class="confidence-value text-green">{{ Number(formSettings.confidence).toFixed(1) }}%</span>
-                </div>
-                <input type="range" min="50.0" max="80.0" step="0.5" v-model="formSettings.confidence" class="confidence-slider" />
-            </div>
-
-            <div class="setting-group">
-                <div class="confidence-header">
-                    <span class="confidence-title">💰 Default Risk Per Trade (%)</span>
-                    <span class="confidence-value text-purple">{{ formSettings.risk_percent }}%</span>
-                </div>
-                <input type="range" min="0.1" max="5.0" step="0.1" v-model="formSettings.risk_percent" class="confidence-slider risk-slider" />
-            </div>
-            <div class="setting-group" style="margin-top: 20px;">
-                <div class="confidence-header">
-                    <span class="confidence-title">⏱️ Session Trading Time</span>
-                </div>
-                <div style="display: flex; gap: 15px; margin-top: 10px;">
-                    <div style="flex: 1;">
-                        <label style="font-size: 0.8em; color: #8b949e;">Start Time</label>
-                        <input type="time" v-model="formSettings.trade_start_time" class="symbol-input" style="padding: 10px; margin-top: 5px; cursor: pointer;" />
-                    </div>
-                    <div style="flex: 1;">
-                        <label style="font-size: 0.8em; color: #8b949e;">End Time</label>
-                        <input type="time" v-model="formSettings.trade_end_time" class="symbol-input" style="padding: 10px; margin-top: 5px; cursor: pointer;" />
-                    </div>
-                </div>
-            </div>
-
-            <div class="setting-group" style="margin-top: 20px;">
-                <div class="confidence-header">
-                    <span class="confidence-title">💱 Active Trading Symbols</span>
-                </div>
-                
-                <div class="symbol-tags" style="margin-top: 10px;">
-                    <span v-for="(sym, index) in activeSymbolList" :key="index" class="symbol-tag">
-                        {{ sym }}
-                        <button @click.prevent="removeSymbol(sym)" class="btn-remove-sym">✕</button>
-                    </span>
-                    <span v-if="activeSymbolList.length === 0" style="color: #8b949e; font-size: 0.9em;">(No active symbols)</span>
-                </div>
-
-                <div class="add-symbol-wrapper" style="margin-top: 10px;">
-                    <input type="text" v-model="newSymbol" class="symbol-input" placeholder="e.g. ETHUSDm" @keyup.enter="addSymbol" />
-                    <button @click.prevent="addSymbol" class="btn-add-sym">➕ ADD</button>
-                </div>
-                <p style="font-size: 11px; color: #8b949e; margin-top: 5px; margin-bottom: 15px;">*เพิ่ม/ลดเหรียญ และกด SAVE ด้านล่างเพื่อส่งข้อมูลให้ AI</p>
-            </div>
-            
-            <button @click="handleSaveGlobalSettings" class="btn-save-settings">
-                💾 APPLY GLOBAL SETTINGS
-            </button>
           </div>
         </section>
       </main>
@@ -180,7 +131,7 @@
         </div>
       </section>
 
-      <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
+      <div v-if="showSymbolModal" class="modal-overlay" @click.self="closeSymbolModal">
         <div class="modal-box">
           <h3 class="modal-title">⚙️ Settings: <span class="text-glow" style="color:#f0b37e;">{{ currentEditSymbol }}</span></h3>
           
@@ -199,6 +150,7 @@
               </div>
               <input type="range" min="0.1" max="5.0" step="0.1" v-model="tempSettings.risk_percent" class="confidence-slider risk-slider" />
           </div>
+          
           <div class="setting-group">
               <div class="confidence-header">
                   <span class="confidence-title">🛡️ SL ATR Distance</span>
@@ -225,7 +177,69 @@
           
           <div class="modal-actions">
             <button @click="saveSymbolSettings" class="btn-save">💾 SAVE</button>
-            <button @click="closeModal" class="btn-cancel">CANCEL</button>
+            <button @click="closeSymbolModal" class="btn-cancel">CANCEL</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showGlobalModal" class="modal-overlay" @click.self="closeGlobalModal">
+        <div class="modal-box" style="max-width: 450px;">
+          <h3 class="modal-title" style="color: #58a6ff;">⚙️ Global AI Settings</h3>
+
+          <div class="setting-group">
+              <div class="confidence-header">
+                  <span class="confidence-title">🤖 Default AI Confidence</span>
+                  <span class="confidence-value text-green">{{ Number(formSettings.confidence).toFixed(1) }}%</span>
+              </div>
+              <input type="range" min="50.0" max="80.0" step="0.5" v-model="formSettings.confidence" class="confidence-slider" />
+          </div>
+
+          <div class="setting-group">
+              <div class="confidence-header">
+                  <span class="confidence-title">💰 Default Risk Per Trade (%)</span>
+                  <span class="confidence-value text-purple">{{ formSettings.risk_percent }}%</span>
+              </div>
+              <input type="range" min="0.1" max="5.0" step="0.1" v-model="formSettings.risk_percent" class="confidence-slider risk-slider" />
+          </div>
+
+          <div class="setting-group" style="margin-top: 20px;">
+              <div class="confidence-header">
+                  <span class="confidence-title">⏱️ Session Trading Time</span>
+              </div>
+              <div style="display: flex; gap: 15px; margin-top: 10px;">
+                  <div style="flex: 1;">
+                      <label style="font-size: 0.8em; color: #8b949e;">Start Time</label>
+                      <input type="time" v-model="formSettings.trade_start_time" class="symbol-input" style="padding: 10px; margin-top: 5px; cursor: pointer;" />
+                  </div>
+                  <div style="flex: 1;">
+                      <label style="font-size: 0.8em; color: #8b949e;">End Time</label>
+                      <input type="time" v-model="formSettings.trade_end_time" class="symbol-input" style="padding: 10px; margin-top: 5px; cursor: pointer;" />
+                  </div>
+              </div>
+          </div>
+
+          <div class="setting-group" style="margin-top: 25px;">
+              <div class="confidence-header">
+                  <span class="confidence-title">💱 Active Trading Symbols</span>
+              </div>
+              
+              <div class="symbol-tags" style="margin-top: 10px;">
+                  <span v-for="(sym, index) in activeSymbolList" :key="index" class="symbol-tag">
+                      {{ sym }}
+                      <button @click.prevent="removeSymbol(sym)" class="btn-remove-sym">✕</button>
+                  </span>
+                  <span v-if="activeSymbolList.length === 0" style="color: #8b949e; font-size: 0.9em;">(No active symbols)</span>
+              </div>
+
+              <div class="add-symbol-wrapper" style="margin-top: 10px;">
+                  <input type="text" v-model="newSymbol" class="symbol-input" placeholder="e.g. ETHUSDm" @keyup.enter="addSymbol" />
+                  <button @click.prevent="addSymbol" class="btn-add-sym">➕ ADD</button>
+              </div>
+          </div>
+          
+          <div class="modal-actions" style="margin-top: 35px;">
+            <button @click="handleSaveGlobalSettings" class="btn-save" style="background: #2ea043;">💾 APPLY SETTINGS</button>
+            <button @click="closeGlobalModal" class="btn-cancel">CLOSE</button>
           </div>
         </div>
       </div>
@@ -233,6 +247,7 @@
     </div>
   </div>
 </template>
+
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
@@ -254,7 +269,6 @@ const account = ref({ balance: 0, equity: 0 });
 const botData = ref({ current_symbol: '-', last_signal: 'HOLD', profit_today: 0, live_signals: {} });
 const tradeHistory = ref([]);
 
-// 🌟 เพิ่มเวลาเข้ามารับค่าเริ่มต้น
 const formSettings = ref({
     confidence: 54.0,
     risk_percent: 1.0,
@@ -353,25 +367,28 @@ const removeSymbol = (sym) => {
 };
 
 // ==========================================
-// 🎛️ ระบบดึงและบันทึกค่า Global
+// 🎛️ ระบบดึงและบันทึกค่า Global (Modal)
 // ==========================================
+const showGlobalModal = ref(false);
 
-// 🌟 ตอนดึงข้อมูลมาโชว์
+const openGlobalSettingsModal = () => {
+    fetchSettings(); // โหลดค่าล่าสุดจาก DB ก่อนเปิด
+    showGlobalModal.value = true;
+};
+const closeGlobalModal = () => {
+    showGlobalModal.value = false;
+};
+
 const fetchSettings = async () => {
     try {
         const res = await fetch(`${API_URL}/api/settings/bot`);
         if (res.ok) {
             const data = await res.json();
-            formSettings.value.confidence = data.confidence;
-            formSettings.value.risk_percent = data.risk_percent;
-            formSettings.value.symbols = data.symbols;
-            formSettings.value.trade_start_time = data.trade_start_time;
-            formSettings.value.trade_end_time = data.trade_end_time;
+            formSettings.value = { ...data };
         }
     } catch (error) { console.error("Failed to fetch settings:", error); }
 };
 
-// 🌟 ตอนกดปุ่มเซฟ
 const handleSaveGlobalSettings = async () => {
     try {
         const payload = {
@@ -388,6 +405,7 @@ const handleSaveGlobalSettings = async () => {
         });
         if (res.ok) {
             alert(`✅ บันทึกการตั้งค่าเวลาและรายชื่อเหรียญเรียบร้อย!\nเวลาเทรด: ${payload.trade_start_time} - ${payload.trade_end_time}`);
+            closeGlobalModal(); // ปิดหน้าต่างตอนเซฟเสร็จ
         } else {
             alert("❌ บันทึกข้อมูลไม่สำเร็จ");
         }
@@ -399,11 +417,11 @@ const handleSaveGlobalSettings = async () => {
 // ==========================================
 // ⚙️ ระบบตั้งค่าแยกรายเหรียญ (Modal)
 // ==========================================
-const showModal = ref(false);
+const showSymbolModal = ref(false);
 const currentEditSymbol = ref('');
 const tempSettings = ref({ confidence: 54.0, risk_percent: 1.0, atr_sl: 2.0, rr_ratio: 2.0, break_even: 1.5 });
 
-const openSettingsModal = async (sym) => {
+const openSymbolSettingsModal = async (sym) => {
   currentEditSymbol.value = sym;
   try {
     const res = await fetch(`${API_URL}/api/settings/symbol/${sym}`);
@@ -418,12 +436,11 @@ const openSettingsModal = async (sym) => {
        };
     }
   } catch(e) { console.error("Error fetching symbol settings", e); }
-  showModal.value = true;
+  showSymbolModal.value = true;
 };
 
-// 🌟 [แก้บั๊ก] เติมฟังก์ชันนี้กลับเข้ามา เพื่อให้หน้าต่างกดปิดได้
-const closeModal = () => {
-  showModal.value = false;
+const closeSymbolModal = () => {
+  showSymbolModal.value = false;
 };
 
 const saveSymbolSettings = async () => {
@@ -441,10 +458,32 @@ const saveSymbolSettings = async () => {
     });
     if(res.ok) {
         alert(`✅ อัปเดตการตั้งค่าระยะเอาตัวรอดสำหรับ ${currentEditSymbol.value} เรียบร้อย!`);
-        closeModal(); // ตอนนี้จะไม่ Error แล้ว!
+        closeSymbolModal(); 
     }
   } catch(e) {
       alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
+  }
+};
+
+// ==========================================
+// 🚨 ปุ่มฉุกเฉินปิดทุกออเดอร์ (Panic Close)
+// ==========================================
+const panicCloseAll = async () => {
+  // เด้งถามเพื่อความชัวร์ ป้องกันมือลั่น
+  if (confirm("🚨 คำเตือนขั้นสูงสุด: คุณแน่ใจหรือไม่ที่จะ 'ปิดทิ้งทุกออเดอร์' ในพอร์ตตอนนี้เลย? (Panic Close)")) {
+    try {
+      const res = await fetch(`${API_URL}/api/trades/close_all`, { method: 'POST' });
+      const data = await res.json();
+      
+      if (res.ok && data.status === "success") {
+        alert(data.message);
+        fetchTradeHistory(); // สั่งให้อัปเดตตารางประวัติทันที
+      } else {
+        alert("❌ " + (data.message || "เกิดข้อผิดพลาดในการปิดออเดอร์"));
+      }
+    } catch (error) {
+      alert("❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้");
+    }
   }
 };
 
@@ -530,6 +569,15 @@ onUnmounted(() => {
 .btn-stop-nav { background: linear-gradient(180deg, #f85149 0%, #da3633 100%); color: white; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; letter-spacing: 0.5px;}
 .btn-stop-nav:hover { filter: brightness(1.2); box-shadow: 0 0 10px rgba(248,81,73,0.4); }
 
+/* 🚨 ปุ่ม Panic Close */
+.btn-panic { background: #8b0000; color: white; border: 1px solid #ff4d4d; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; letter-spacing: 0.5px; animation: pulseRed 2s infinite; }
+.btn-panic:hover { background: #ff4d4d; color: #000; animation: none; box-shadow: 0 0 15px rgba(255,77,77,0.8); }
+@keyframes pulseRed { 
+  0% { box-shadow: 0 0 0 0 rgba(248,81,73,0.5); } 
+  70% { box-shadow: 0 0 0 10px rgba(248,81,73,0); } 
+  100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); } 
+}
+
 /* 🗂️ Cards & Grid */
 .grid-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
 .card { background: #161b22; padding: 25px; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
@@ -539,8 +587,12 @@ onUnmounted(() => {
 .profit strong { color: #3fb950; font-size: 1.4em; }
 .profit.loss strong { color: #f85149; }
 
+/* ⚙️ Global Settings Button */
+.btn-global-settings { background: rgba(88,166,255,0.1); color: #58a6ff; border: 1px solid #58a6ff; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 0.9em; box-shadow: 0 0 10px rgba(88,166,255,0.2); }
+.btn-global-settings:hover { background: #58a6ff; color: #0d1117; }
+.mini-tag { background: rgba(139,148,158,0.2); border: 1px solid #30363d; color: #c9d1d9; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; }
+
 /* 👇 สไตล์กล่องควบคุม Settings */
-.confidence-control { margin-top: 25px; padding: 20px; background-color: #010409; border-radius: 8px; border: 1px solid #30363d; }
 .setting-group { margin-bottom: 20px; }
 .confidence-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .confidence-title { color: #c9d1d9; font-weight: bold; font-size: 0.95em; }
@@ -549,10 +601,8 @@ onUnmounted(() => {
 .text-purple { color: #d2a8ff; text-shadow: 0 0 8px rgba(210,168,255,0.4); }
 .confidence-slider { width: 100%; cursor: pointer; accent-color: #3fb950; height: 6px; background: #21262d; border-radius: 3px; outline: none; }
 .risk-slider { accent-color: #d2a8ff; }
-.symbol-input { width: 100%; padding: 12px; background: #161b22; border: 1px solid #30363d; color: #f0b37e; border-radius: 6px; font-weight: bold; font-size: 1em; box-sizing: border-box; outline: none; transition: 0.2s; }
+.symbol-input { width: 100%; padding: 12px; background: #010409; border: 1px solid #30363d; color: #f0b37e; border-radius: 6px; font-weight: bold; font-size: 1em; box-sizing: border-box; outline: none; transition: 0.2s; }
 .symbol-input:focus { border-color: #58a6ff; }
-.btn-save-settings { width: 100%; padding: 12px; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-.btn-save-settings:hover { background: #30363d; color: white; border-color: #8b949e; }
 
 /* 🏷️ Style สำหรับ Symbol Tags */
 .symbol-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
@@ -594,7 +644,7 @@ onUnmounted(() => {
 .signal-badge { font-size: 0.75em; font-weight: bold; padding: 3px 6px; border-radius: 4px; text-transform: uppercase; }
 .signal-badge.buy, .signal-badge.strong_buy { background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid #3fb950; }
 .signal-badge.sell, .signal-badge.strong_sell { background: rgba(248,81,73,0.2); color: #f85149; border: 1px solid #f85149; }
-.signal-badge.hold, .signal-badge.wait { background: rgba(139,148,158,0.2); color: #8b949e; border: 1px solid #8b949e; }
+.signal-badge.hold, .signal-badge.wait, .signal-badge.sleep { background: rgba(139,148,158,0.2); color: #8b949e; border: 1px solid #8b949e; }
 .signal-bar-container { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #21262d; margin-bottom: 8px; }
 .signal-bar { transition: width 0.5s ease-in-out; }
 .signal-bar.buy { background: #3fb950; }

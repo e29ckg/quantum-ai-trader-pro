@@ -37,15 +37,6 @@ class BotSettings(BaseModel):
 class SymbolSettingUpdate(BaseModel):
     confidence: float
     risk_percent: float
-
-class BotSettings(BaseModel):
-    confidence: float
-    risk_percent: float
-    symbols: str
-
-class SymbolSettingUpdate(BaseModel):
-    confidence: float
-    risk_percent: float
     # 🌟 เพิ่ม 3 บรรทัดนี้
     atr_sl: float
     rr_ratio: float
@@ -105,16 +96,28 @@ def get_bot_settings():
 
 @app.post("/api/settings/bot")
 def update_bot_settings(settings: BotSettings):
-    confidence_val = settings.confidence / 100.0
-    risk_val = settings.risk_percent
-    raw_symbols = settings.symbols.split(",")
-    clean_symbols = [s.strip() for s in raw_symbols if s.strip()]
-    symbols_str = ",".join(clean_symbols)
+    try:
+        # แปลงค่าเพื่อเซฟลง DB
+        confidence_val = settings.confidence / 100.0
+        risk_val = settings.risk_percent
+        raw_symbols = settings.symbols.split(",")
+        clean_symbols = [s.strip() for s in raw_symbols if s.strip()]
+        symbols_str = ",".join(clean_symbols)
 
-    # 🌟 ยัดค่าเวลาลง Database
-    update_bot_settings_db(confidence_val, risk_val, symbols_str, settings.trade_start_time, settings.trade_end_time)
-
-    return {"status": "success"}
+        # 🌟 ต้องส่งค่าไป 5 ตัวให้ตรงกับที่ไฟล์ db.py ต้องการ!
+        update_bot_settings_db(
+            confidence_val, 
+            risk_val, 
+            symbols_str, 
+            settings.trade_start_time, 
+            settings.trade_end_time
+        )
+        
+        return {"status": "success"}
+    except Exception as e:
+        # ดักจับ Error เผื่อไว้ จะได้รู้ว่าพังที่ไหน
+        print(f"❌ [API Error] Update Global Settings: {e}")
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/settings/symbol/{symbol}")
 def api_get_sym_setting(symbol: str):
@@ -124,6 +127,51 @@ def api_get_sym_setting(symbol: str):
 def api_update_sym_setting(symbol: str, settings: SymbolSettingUpdate):
     update_symbol_config(symbol, settings.confidence, settings.risk_percent, settings.atr_sl, settings.rr_ratio, settings.break_even)
     return {"status": "success", "message": f"Updated {symbol}"}
+
+
+
+
+@app.post("/api/trades/close_all")
+def api_close_all_positions():
+    """ฟังก์ชันฉุกเฉิน: ทิ้งทุกออเดอร์ในพอร์ตทันที (Panic Close)"""
+    try:
+        if not mt5.initialize():
+            return {"status": "error", "message": "ไม่สามารถเชื่อมต่อ MT5 ได้"}
+            
+        positions = mt5.positions_get()
+        if positions is None or len(positions) == 0:
+            return {"status": "success", "message": "รอดตัวไป! ไม่มีออเดอร์ค้างในพอร์ตครับ"}
+            
+        closed_count = 0
+        for pos in positions:
+            tick = mt5.symbol_info_tick(pos.symbol)
+            if not tick: continue
+            
+            # สลับฝั่งเพื่อปิดออเดอร์
+            action_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+            price = tick.bid if action_type == mt5.ORDER_TYPE_SELL else tick.ask
+            
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "position": pos.ticket,
+                "symbol": pos.symbol,
+                "volume": pos.volume,
+                "type": action_type,
+                "price": price,
+                "deviation": 30, # เผื่อ Slippage ให้กว้างหน่อยเพราะช่วงข่าวสวิงแรง
+                "magic": 9999,   # รหัสฉุกเฉิน
+                "comment": "Panic Close (Web)",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
+            res = mt5.order_send(request)
+            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                closed_count += 1
+                
+        return {"status": "success", "message": f"🔥 Panic Close ทำงาน! ปิดหนีตายสำเร็จ {closed_count} ไม้!"}
+    except Exception as e:
+        print(f"❌ [Panic Close Error]: {e}")
+        return {"status": "error", "message": str(e)}
 
 # ==========================================
 # ⚡ WebSockets (Real-time Dashboard)

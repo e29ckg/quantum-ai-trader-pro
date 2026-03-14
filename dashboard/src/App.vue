@@ -90,6 +90,21 @@
                 </div>
                 <input type="range" min="0.1" max="5.0" step="0.1" v-model="formSettings.risk_percent" class="confidence-slider risk-slider" />
             </div>
+            <div class="setting-group" style="margin-top: 20px;">
+                <div class="confidence-header">
+                    <span class="confidence-title">⏱️ Session Trading Time</span>
+                </div>
+                <div style="display: flex; gap: 15px; margin-top: 10px;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.8em; color: #8b949e;">Start Time</label>
+                        <input type="time" v-model="formSettings.trade_start_time" class="symbol-input" style="padding: 10px; margin-top: 5px; cursor: pointer;" />
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.8em; color: #8b949e;">End Time</label>
+                        <input type="time" v-model="formSettings.trade_end_time" class="symbol-input" style="padding: 10px; margin-top: 5px; cursor: pointer;" />
+                    </div>
+                </div>
+            </div>
 
             <div class="setting-group" style="margin-top: 20px;">
                 <div class="confidence-header">
@@ -184,6 +199,29 @@
               </div>
               <input type="range" min="0.1" max="5.0" step="0.1" v-model="tempSettings.risk_percent" class="confidence-slider risk-slider" />
           </div>
+          <div class="setting-group">
+              <div class="confidence-header">
+                  <span class="confidence-title">🛡️ SL ATR Distance</span>
+                  <span class="confidence-value text-green">x{{ Number(tempSettings.atr_sl).toFixed(1) }}</span>
+              </div>
+              <input type="range" min="1.0" max="5.0" step="0.1" v-model="tempSettings.atr_sl" class="confidence-slider" style="accent-color: #f85149;" />
+          </div>
+
+          <div class="setting-group">
+              <div class="confidence-header">
+                  <span class="confidence-title">🚀 Take Profit (R:R)</span>
+                  <span class="confidence-value text-green">1:{{ Number(tempSettings.rr_ratio).toFixed(1) }}</span>
+              </div>
+              <input type="range" min="1.0" max="5.0" step="0.1" v-model="tempSettings.rr_ratio" class="confidence-slider" style="accent-color: #58a6ff;" />
+          </div>
+
+          <div class="setting-group">
+              <div class="confidence-header">
+                  <span class="confidence-title">🔒 Break-Even ATR</span>
+                  <span class="confidence-value text-green">x{{ Number(tempSettings.break_even).toFixed(1) }}</span>
+              </div>
+              <input type="range" min="1.0" max="3.0" step="0.1" v-model="tempSettings.break_even" class="confidence-slider" style="accent-color: #f0b37e;" />
+          </div>
           
           <div class="modal-actions">
             <button @click="saveSymbolSettings" class="btn-save">💾 SAVE</button>
@@ -195,7 +233,6 @@
     </div>
   </div>
 </template>
-
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
@@ -217,10 +254,13 @@ const account = ref({ balance: 0, equity: 0 });
 const botData = ref({ current_symbol: '-', last_signal: 'HOLD', profit_today: 0, live_signals: {} });
 const tradeHistory = ref([]);
 
+// 🌟 เพิ่มเวลาเข้ามารับค่าเริ่มต้น
 const formSettings = ref({
     confidence: 54.0,
     risk_percent: 1.0,
-    symbols: "BTCUSDm,XAUUSDm"
+    symbols: "BTCUSDm,XAUUSDm",
+    trade_start_time: "00:00",
+    trade_end_time: "23:59"
 });
 
 // Helpers
@@ -315,6 +355,8 @@ const removeSymbol = (sym) => {
 // ==========================================
 // 🎛️ ระบบดึงและบันทึกค่า Global
 // ==========================================
+
+// 🌟 ตอนดึงข้อมูลมาโชว์
 const fetchSettings = async () => {
     try {
         const res = await fetch(`${API_URL}/api/settings/bot`);
@@ -323,16 +365,21 @@ const fetchSettings = async () => {
             formSettings.value.confidence = data.confidence;
             formSettings.value.risk_percent = data.risk_percent;
             formSettings.value.symbols = data.symbols;
+            formSettings.value.trade_start_time = data.trade_start_time;
+            formSettings.value.trade_end_time = data.trade_end_time;
         }
     } catch (error) { console.error("Failed to fetch settings:", error); }
 };
 
+// 🌟 ตอนกดปุ่มเซฟ
 const handleSaveGlobalSettings = async () => {
     try {
         const payload = {
             confidence: parseFloat(formSettings.value.confidence),
             risk_percent: parseFloat(formSettings.value.risk_percent),
-            symbols: formSettings.value.symbols
+            symbols: formSettings.value.symbols,
+            trade_start_time: formSettings.value.trade_start_time,
+            trade_end_time: formSettings.value.trade_end_time
         };
         const res = await fetch(`${API_URL}/api/settings/bot`, {
             method: 'POST',
@@ -340,13 +387,12 @@ const handleSaveGlobalSettings = async () => {
             body: JSON.stringify(payload)
         });
         if (res.ok) {
-            alert(`✅ บันทึกการตั้งค่า Global และรายชื่อเหรียญเรียบร้อย!\nAI กำลังเริ่มสแกน: ${payload.symbols}`);
+            alert(`✅ บันทึกการตั้งค่าเวลาและรายชื่อเหรียญเรียบร้อย!\nเวลาเทรด: ${payload.trade_start_time} - ${payload.trade_end_time}`);
         } else {
             alert("❌ บันทึกข้อมูลไม่สำเร็จ");
         }
     } catch (error) {
         console.error("Error updating settings:", error);
-        alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
     }
 };
 
@@ -355,7 +401,7 @@ const handleSaveGlobalSettings = async () => {
 // ==========================================
 const showModal = ref(false);
 const currentEditSymbol = ref('');
-const tempSettings = ref({ confidence: 54.0, risk_percent: 1.0 });
+const tempSettings = ref({ confidence: 54.0, risk_percent: 1.0, atr_sl: 2.0, rr_ratio: 2.0, break_even: 1.5 });
 
 const openSettingsModal = async (sym) => {
   currentEditSymbol.value = sym;
@@ -363,12 +409,19 @@ const openSettingsModal = async (sym) => {
     const res = await fetch(`${API_URL}/api/settings/symbol/${sym}`);
     if(res.ok) {
        const data = await res.json();
-       tempSettings.value = { confidence: data.confidence, risk_percent: data.risk_percent };
+       tempSettings.value = { 
+           confidence: data.confidence, 
+           risk_percent: data.risk_percent,
+           atr_sl: data.atr_sl || 2.0,
+           rr_ratio: data.rr_ratio || 2.0,
+           break_even: data.break_even || 1.5
+       };
     }
   } catch(e) { console.error("Error fetching symbol settings", e); }
   showModal.value = true;
 };
 
+// 🌟 [แก้บั๊ก] เติมฟังก์ชันนี้กลับเข้ามา เพื่อให้หน้าต่างกดปิดได้
 const closeModal = () => {
   showModal.value = false;
 };
@@ -380,12 +433,15 @@ const saveSymbolSettings = async () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             confidence: parseFloat(tempSettings.value.confidence),
-            risk_percent: parseFloat(tempSettings.value.risk_percent)
+            risk_percent: parseFloat(tempSettings.value.risk_percent),
+            atr_sl: parseFloat(tempSettings.value.atr_sl),
+            rr_ratio: parseFloat(tempSettings.value.rr_ratio),
+            break_even: parseFloat(tempSettings.value.break_even)
         })
     });
     if(res.ok) {
-        alert(`✅ อัปเดตการตั้งค่าสำหรับ ${currentEditSymbol.value} ลงสมอง AI เรียบร้อย!`);
-        closeModal();
+        alert(`✅ อัปเดตการตั้งค่าระยะเอาตัวรอดสำหรับ ${currentEditSymbol.value} เรียบร้อย!`);
+        closeModal(); // ตอนนี้จะไม่ Error แล้ว!
     }
   } catch(e) {
       alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");

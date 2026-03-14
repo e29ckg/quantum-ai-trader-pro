@@ -63,8 +63,9 @@ def close_mt5_position(position, comment="AI Reversal"):
     result = mt5.order_send(request)
     return result is not None and result.retcode == mt5.TRADE_RETCODE_DONE
 
-def apply_break_even(position, df):
-    """เลื่อนเส้น Stop Loss มาบังหน้าทุน (ทุนปลอดภัย 100%) เมื่อกำไรเกิน 1.5 ATR"""
+# 🌟 [แก้ไขใหม่] เพิ่ม break_even_mult=1.5 เข้าไปรับค่าจากหน้าเว็บ
+def apply_break_even(position, df, break_even_mult=1.5):
+    """เลื่อนเส้น Stop Loss มาบังหน้าทุน (ทุนปลอดภัย 100%) ตามค่าที่ตั้งไว้"""
     # คำนวณความผันผวน (ATR)
     high_low = df['high'] - df['low']
     high_close = (df['high'] - df['close'].shift()).abs()
@@ -76,7 +77,8 @@ def apply_break_even(position, df):
     entry = position.price_open
     sl = position.sl
     
-    profit_distance = 1.5 * atr
+    # 🌟 [อัปเกรด] ใช้ค่า Break-Even ATR จากหน้าเว็บแทนการฟิกซ์ 1.5 ตายตัว!
+    profit_distance = break_even_mult * atr
     request = None
     
     # เลื่อนบังทุนฝั่ง BUY
@@ -158,24 +160,89 @@ def send_daily_summary(active_symbols: list):
             df_today = get_candles(symbol, TIMEFRAME, bars=500)
             if df_today is not None: update_brain_daily(df_today, symbol)
 
+def check_and_notify_closed_trades():
+    """ฟังก์ชันดักจับออเดอร์ที่ชน TP, ชน SL หรือปิดมือ แล้วส่งแจ้งเตือน"""
+    try:
+        conn = sqlite3.connect("quantum_bot.db")
+        cursor = conn.cursor()
+        
+        # ดึงออเดอร์ที่สถานะในฐานข้อมูลยังเป็น 'OPEN' อยู่
+        cursor.execute("SELECT ticket_id, symbol, trade_type, entry_price FROM trade_history WHERE status = 'OPEN'")
+        open_trades = cursor.fetchall()
+        
+        for trade in open_trades:
+            ticket_id, symbol, trade_type, entry_price = trade
+            
+            # เช็คว่าออเดอร์นี้ยังวิ่งอยู่ใน MT5 ไหม?
+            pos = mt5.positions_get(ticket=ticket_id)
+            
+            # ถ้าหาไม่เจอ แปลว่า "ถูกปิดไปแล้ว!"
+            if pos is None or len(pos) == 0:
+                # ไปขุดประวัติ (History) เพื่อดูกำไร/ขาดทุนที่แท้จริง
+                deals = mt5.history_deals_get(position=ticket_id)
+                if deals and len(deals) > 0:
+                    # คำนวณ PnL สุทธิ (กำไร/ขาดทุน + ค่า Swap + ค่าธรรมเนียม)
+                    net_profit = sum(d.profit + d.swap + d.commission for d in deals)
+                    
+                    # อัปเดตฐานข้อมูลให้เป็น CLOSED
+                    cursor.execute("UPDATE trade_history SET status = 'CLOSED', profit = ? WHERE ticket_id = ?", (net_profit, ticket_id))
+                    conn.commit()
+                    
+                    # สร้างข้อความแจ้งเตือน
+                    emoji = "🟢" if net_profit >= 0 else "🔴"
+                    profit_sign = "+" if net_profit >= 0 else ""
+                    
+                    # เดาสาเหตุการปิดคร่าวๆ (กำไร = น่าจะชน TP, ขาดทุน = น่าจะชน SL)
+                    close_type = "TAKE PROFIT (TP) 🏆" if net_profit > 0 else "STOP LOSS (SL) 🛡️"
+                    
+                    msg = (
+                        f"🏁 <b>TRADE CLOSED ({close_type})</b> 🏁\n\n"
+                        f"💱 <b>Symbol:</b> {symbol} (Ticket: #{ticket_id})\n"
+                        f"📦 <b>Type:</b> {trade_type.upper()}\n"
+                        f"📥 <b>Entry Price:</b> {entry_price:.5f}\n"
+                        f"💰 <b>Net Profit:</b> {emoji} <b>{profit_sign}${net_profit:.2f}</b>\n"
+                        f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                    send_telegram_message(msg)
+                    print(f"🏁 [Trade Closed] {symbol} (Ticket: #{ticket_id}) ปิดออเดอร์แล้ว | PnL: {profit_sign}${net_profit:.2f}")
+
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ [Check Closed Trades Error]: {e}")
+
 # ==========================================
 # 🧠 วัฏจักรการทำงานหลัก (Main Loop)
 # ==========================================
 # 🌟 [แก้ไข 1] ไม่ต้องรับค่าความมั่นใจและความเสี่ยงรวมแล้ว รับแค่รายชื่อเหรียญพอ
 def run_bot_cycle(active_symbols: list):
     send_daily_summary(active_symbols)
+    check_and_notify_closed_trades()
+
+    # 🌟🌟🌟 [ระบบใหม่] ดึงค่าเวลาเทรดมาเช็ค 🌟🌟🌟
+    global_settings = get_bot_settings_db()
+    now_time = datetime.now().time()
+    start_time = datetime.strptime(global_settings.trade_start_time, "%H:%M").time()
+    end_time = datetime.strptime(global_settings.trade_end_time, "%H:%M").time()
+    
+    is_trading_time = False
+    if start_time <= end_time:
+        # เทรดวันเดียวกัน (เช่น 08:00 ถึง 20:00)
+        is_trading_time = start_time <= now_time <= end_time
+    else:
+        # เทรดข้ามคืน (เช่น 20:00 ถึง 04:00 ของอีกวัน)
+        is_trading_time = now_time >= start_time or now_time <= end_time
     
     for symbol in active_symbols:
-        # 🌟 [แก้ไข 2] โหลดค่า "ความมั่นใจ" และ "ความเสี่ยง" เฉพาะของเหรียญนี้เท่านั้น!
         sym_config = get_symbol_config(symbol)
         target_confidence_percent = sym_config["confidence"]
         risk_percent = sym_config["risk_percent"]
-        
-        if symbol not in live_signals:
-            live_signals[symbol] = {"signal": "WAIT", "buy_prob": 0.0, "sell_prob": 0.0}
+        # 🌟 ดึง 3 ค่านี้มาใช้
+        atr_mult = sym_config["atr_sl"]
+        rr_ratio = sym_config["rr_ratio"]
+        break_even_mult = sym_config["break_even"]
 
-        # 1. ระบบรักษาความปลอดภัย: เลื่อน Trailing Stop (ทำตลอดเวลา)
-        manage_dynamic_trailing_stop(symbol, timeframe=TIMEFRAME, atr_multiplier=2.0)
+        # 🌟 โยน atr_mult ไปให้ Trailing Stop ใช้ด้วย
+        manage_dynamic_trailing_stop(symbol, timeframe=TIMEFRAME, atr_multiplier=atr_mult)
 
         # 2. ดึงกราฟมาวิเคราะห์ "ทุกรอบ"
         df = get_candles(symbol, TIMEFRAME, bars=200)
@@ -194,9 +261,14 @@ def run_bot_cycle(active_symbols: list):
         buy_prob = prob * 100
         sell_prob = (1 - prob) * 100
 
+        # 🌟 โชว์สถานะ SLEEP ถ้านอกเวลาเทรด
+        display_signal = liq_signal.upper() if liq_signal != "hold" else "HOLD"
+        if not is_trading_time:
+            display_signal = "SLEEP 💤"
+
         # ส่งค่าขึ้นไปโชว์ที่ Dashboard
         live_signals[symbol] = {
-            "signal": liq_signal.upper() if liq_signal != "hold" else "HOLD",
+            "signal": display_signal,
             "buy_prob": buy_prob,
             "sell_prob": sell_prob
         }
@@ -216,7 +288,7 @@ def run_bot_cycle(active_symbols: list):
                 sync_manual_order_to_db(pos)
                 
                 # ท่าไม้ตายที่ 1: เลื่อน SL บังทุน (Break-Even)
-                apply_break_even(pos, df)
+                apply_break_even(pos, df, break_even_mult)
                 
                 # ท่าไม้ตายที่ 2: ชิงเผ่นหนีตาย (AI Reversal Exit)
                 close_trade = False
@@ -252,6 +324,9 @@ def run_bot_cycle(active_symbols: list):
         # ==========================================
         # 🚀 โซนยิงออเดอร์ใหม่ (เมื่อมือว่าง)
         # ==========================================
+        if not is_trading_time:
+            continue
+        
         final_signal = None
         if liq_signal in ["buy", "strong_buy"] and buy_prob >= target_confidence_percent:
             final_signal = liq_signal
@@ -269,33 +344,26 @@ def run_bot_cycle(active_symbols: list):
             min_lot, step_lot = symbol_info.volume_min, symbol_info.volume_step
             lot = round(max(raw_lot, min_lot) / step_lot) * step_lot
             
-            # 🌟🌟🌟 [ระบบใหม่] คำนวณระยะ SL และ TP อัตโนมัติด้วย ATR + R:R Ratio 🌟🌟🌟
+            # 🌟🌟🌟 คำนวณระยะ SL และ TP อัตโนมัติด้วย ATR + R:R Ratio จากหน้าเว็บ 🌟🌟🌟
             high_low = df['high'] - df['low']
             high_close = (df['high'] - df['close'].shift()).abs()
             low_close = (df['low'] - df['close'].shift()).abs()
             tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
             atr = tr.rolling(14).mean().iloc[-1]
             
-            # 🎯 ปรับระยะห่างตามนิสัยคู่เงิน (atr_mult = ระยะหนีตาย SL, rr_ratio = ระยะทำกำไร TP)
-            if "BTC" in symbol:
-                atr_mult = 2.5  
-                rr_ratio = 2.0  # BTC วิ่งยาว ขอ R:R 1:2 (เสี่ยง 1 ได้ 2)
-            elif "XAU" in symbol:
-                atr_mult = 2.0  
-                rr_ratio = 2.0  # ทองคำสวิงทำกำไรดี ขอ R:R 1:2
-            else:
-                atr_mult = 1.5  
-                rr_ratio = 1.5  # Forex ปกติ ขอ R:R 1:1.5
-                
-            tick = mt5.symbol_info_tick(symbol)
-            sl_price = 0.0
-            tp_price = 0.0
-            
-            # คำนวณระยะทางแบบดิบๆ ก่อน
+            # คำนวณระยะทาง
             sl_distance = atr * atr_mult
             tp_distance = sl_distance * rr_ratio
             
-            # คำนวณราคา SL และ TP ตามฝั่งที่เข้า
+            # 🌟 [เพิ่มกลับมาแล้ว!] ดึงราคาปัจจุบัน (Tick)
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is None: 
+                continue # ถ้าเน็ตหลุดดึงราคาไม่ได้ ให้ข้ามไปก่อน
+                
+            sl_price = 0.0
+            tp_price = 0.0
+            
+            # คำนวณราคาตามฝั่งที่เข้า
             if final_signal in ["buy", "strong_buy"]:
                 sl_price = tick.ask - sl_distance
                 tp_price = tick.ask + tp_distance
@@ -303,13 +371,12 @@ def run_bot_cycle(active_symbols: list):
                 sl_price = tick.bid + sl_distance
                 tp_price = tick.bid - tp_distance
                 
-            # ปรับทศนิยมให้ตรงกับคู่เงินนั้นๆ
+            # ปรับทศนิยมให้ตรงกับคู่เงิน
             sl_price = round(sl_price, symbol_info.digits)
             tp_price = round(tp_price, symbol_info.digits)
             
-            # 🌟 [แก้ไขใหม่] ส่งทั้ง sl_price และ tp_price ยัดเข้าไปในฟังก์ชัน send_order!
+            # ส่งคำสั่งยิงออเดอร์พร้อม SL/TP
             result = send_order(symbol, final_signal, lot, sl=sl_price, tp=tp_price)
-            
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 save_new_trade(result.order, symbol, final_signal, result.price)
                 msg = (

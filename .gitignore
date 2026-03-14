@@ -12,6 +12,7 @@ dashboard/dist/
 
 # 💾 ไฟล์ Database และ AI Model (ถ้าไฟล์ใหญ่เกินไป GitHub จะไม่ยอมรับ)
 database/*.db
+*.db
 ai_engine/*.h5
 
 # 💻 ไฟล์ระบบปฏิบัติการ

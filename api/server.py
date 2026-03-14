@@ -26,15 +26,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🌟 สร้าง Model รับค่า
+class BotSettings(BaseModel):
+    confidence: float
+    risk_percent: float
+    symbols: str
+    trade_start_time: str  # 🌟 เพิ่มบรรทัดนี้
+    trade_end_time: str    # 🌟 เพิ่มบรรทัดนี้
+
+class SymbolSettingUpdate(BaseModel):
+    confidence: float
+    risk_percent: float
+
 class BotSettings(BaseModel):
     confidence: float
     risk_percent: float
     symbols: str
 
-# 🌟 สร้าง Model รับค่า
 class SymbolSettingUpdate(BaseModel):
     confidence: float
     risk_percent: float
+    # 🌟 เพิ่ม 3 บรรทัดนี้
+    atr_sl: float
+    rr_ratio: float
+    break_even: float
 
 
 # ==========================================
@@ -79,31 +94,26 @@ async def api_get_trades(current_admin: str = Depends(get_current_admin)):
 # ==========================================
 @app.get("/api/settings/bot")
 def get_bot_settings():
-    """ส่งค่าตั้งค่าปัจจุบันจาก Database ไปแสดงที่หน้าเว็บ"""
     db_settings = get_bot_settings_db()
     return {
         "confidence": db_settings.confidence * 100,
         "risk_percent": db_settings.risk_percent,
-        "symbols": db_settings.symbols
+        "symbols": db_settings.symbols,
+        "trade_start_time": db_settings.trade_start_time, # 🌟 ดึงไปโชว์หน้าเว็บ
+        "trade_end_time": db_settings.trade_end_time      # 🌟 ดึงไปโชว์หน้าเว็บ
     }
 
 @app.post("/api/settings/bot")
 def update_bot_settings(settings: BotSettings):
-    """รับค่าที่ปรับแต่งจากหน้าเว็บมาเซฟลง Database"""
     confidence_val = settings.confidence / 100.0
     risk_val = settings.risk_percent
-    
     raw_symbols = settings.symbols.split(",")
     clean_symbols = [s.strip() for s in raw_symbols if s.strip()]
     symbols_str = ",".join(clean_symbols)
 
-    update_bot_settings_db(confidence_val, risk_val, symbols_str)
+    # 🌟 ยัดค่าเวลาลง Database
+    update_bot_settings_db(confidence_val, risk_val, symbols_str, settings.trade_start_time, settings.trade_end_time)
 
-    print(f"\n💾 [Database] บันทึกการตั้งค่าถาวรเรียบร้อย!")
-    print(f"   => AI Confidence : {settings.confidence}%")
-    print(f"   => Risk Per Trade: {risk_val}%")
-    print(f"   => Active Symbols: {symbols_str}\n")
-    
     return {"status": "success"}
 
 @app.get("/api/settings/symbol/{symbol}")
@@ -112,7 +122,7 @@ def api_get_sym_setting(symbol: str):
 
 @app.post("/api/settings/symbol/{symbol}")
 def api_update_sym_setting(symbol: str, settings: SymbolSettingUpdate):
-    update_symbol_config(symbol, settings.confidence, settings.risk_percent)
+    update_symbol_config(symbol, settings.confidence, settings.risk_percent, settings.atr_sl, settings.rr_ratio, settings.break_even)
     return {"status": "success", "message": f"Updated {symbol}"}
 
 # ==========================================

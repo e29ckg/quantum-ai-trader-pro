@@ -1,11 +1,12 @@
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, Query, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware  
 from database.db import get_symbol_config, update_symbol_config
 from pydantic import BaseModel
 import asyncio
 import json
 import MetaTrader5 as mt5
+from bot.backtest import run_backtest_pro
 
 # นำเข้าโมดูลที่เราเขียนไว้
 from mt5_engine.connect import connect_mt5, get_account_info
@@ -177,6 +178,25 @@ def api_close_all_positions():
         return {"status": "success", "message": f"🔥 Panic Close ทำงาน! ปิดหนีตายสำเร็จ {closed_count} ไม้!"}
     except Exception as e:
         print(f"❌ [Panic Close Error]: {e}")
+        return {"status": "error", "message": str(e)}
+    
+# อย่าลืม Import ฟังก์ชัน backtest จากไฟล์ของลูกพี่มาไว้บนสุดของไฟล์ด้วยนะครับ
+# เช่น: from bot.backtest import run_backtest_pro
+
+@app.get("/api/backtest/{symbol}")
+def api_run_backtest(symbol: str, bars: int = Query(5000)):
+    """API รัน Backtest ที่สามารถกำหนดจำนวนแท่งเทียนได้"""
+    try:
+        # เรียกใช้ฟังก์ชันรัน Backtest
+        from bot.backtest import run_backtest_pro
+        report = run_backtest_pro(symbol, bars=bars) 
+        
+        if report and report.get("status") == "success":
+            return report
+        else:
+            return {"status": "error", "message": report.get("message", "ไม่มีข้อมูลการเทรดในรอบนี้")}
+    except Exception as e:
+        print(f"❌ [API Backtest Error]: {e}")
         return {"status": "error", "message": str(e)}
 
 # ==========================================

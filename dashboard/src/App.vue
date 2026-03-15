@@ -134,7 +134,19 @@
       <div v-if="showSymbolModal" class="modal-overlay" @click.self="closeSymbolModal">
         <div class="modal-box">
           <h3 class="modal-title">⚙️ Settings: <span class="text-glow" style="color:#f0b37e;">{{ currentEditSymbol }}</span></h3>
-          
+          <div style="background: rgba(88,166,255,0.1); border: 1px solid #58a6ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+             <div>
+                <strong style="color: #58a6ff;">🤖 AI Auto-Tune Mode</strong>
+                <p style="margin: 5px 0 0 0; font-size: 0.8em; color: #8b949e;">ให้ AI ปรับค่าตามสภาวะตลาดอัตโนมัติ</p>
+             </div>
+             <label class="switch">
+                <input type="checkbox" v-model="tempSettings.auto_tune">
+                <span class="slider round"></span>
+             </label>
+          </div>
+          <p v-if="tempSettings.auto_tune" style="color: #3fb950; font-size: 0.85em; text-align: center; margin-bottom: 15px;">
+            ✅ AI กำลังควบคุมค่าด้านล่างนี้อัตโนมัติ (Dynamic Adjust)
+          </p>
           <div class="setting-group">
               <div class="confidence-header">
                   <span class="confidence-title">🤖 Target Confidence</span>
@@ -419,7 +431,7 @@ const handleSaveGlobalSettings = async () => {
 // ==========================================
 const showSymbolModal = ref(false);
 const currentEditSymbol = ref('');
-const tempSettings = ref({ confidence: 54.0, risk_percent: 1.0, atr_sl: 2.0, rr_ratio: 2.0, break_even: 1.5 });
+const tempSettings = ref({ confidence: 54.0, risk_percent: 1.0, atr_sl: 2.0, rr_ratio: 2.0, break_even: 1.5, auto_tune: false });
 
 const openSymbolSettingsModal = async (sym) => {
   currentEditSymbol.value = sym;
@@ -432,7 +444,8 @@ const openSymbolSettingsModal = async (sym) => {
            risk_percent: data.risk_percent,
            atr_sl: data.atr_sl || 2.0,
            rr_ratio: data.rr_ratio || 2.0,
-           break_even: data.break_even || 1.5
+           break_even: data.break_even || 1.5,
+           auto_tune: data.auto_tune || false
        };
     }
   } catch(e) { console.error("Error fetching symbol settings", e); }
@@ -453,7 +466,8 @@ const saveSymbolSettings = async () => {
             risk_percent: parseFloat(tempSettings.value.risk_percent),
             atr_sl: parseFloat(tempSettings.value.atr_sl),
             rr_ratio: parseFloat(tempSettings.value.rr_ratio),
-            break_even: parseFloat(tempSettings.value.break_even)
+            break_even: parseFloat(tempSettings.value.break_even),
+            auto_tune: tempSettings.value.auto_tune
         })
     });
     if(res.ok) {
@@ -667,6 +681,14 @@ onUnmounted(() => {
 .btn-save:hover { filter: brightness(1.2); }
 .btn-cancel { flex: 1; background: transparent; border: 1px solid #8b949e; color: #8b949e; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
 .btn-cancel:hover { background: #30363d; color: white; }
+
+/* Toggle Switch */
+.switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #30363d; transition: .4s; border-radius: 34px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+input:checked + .slider { background-color: #58a6ff; }
+input:checked + .slider:before { transform: translateX(24px); }
 
 /* ==========================================
    📱 MOBILE RESPONSIVE 

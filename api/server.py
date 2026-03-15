@@ -37,10 +37,10 @@ class BotSettings(BaseModel):
 class SymbolSettingUpdate(BaseModel):
     confidence: float
     risk_percent: float
-    # 🌟 เพิ่ม 3 บรรทัดนี้
     atr_sl: float
     rr_ratio: float
     break_even: float
+    auto_tune: bool  # 🤖 เพิ่มบรรทัดนี้
 
 
 # ==========================================
@@ -125,10 +125,16 @@ def api_get_sym_setting(symbol: str):
 
 @app.post("/api/settings/symbol/{symbol}")
 def api_update_sym_setting(symbol: str, settings: SymbolSettingUpdate):
-    update_symbol_config(symbol, settings.confidence, settings.risk_percent, settings.atr_sl, settings.rr_ratio, settings.break_even)
+    update_symbol_config(
+        symbol, 
+        settings.confidence, 
+        settings.risk_percent, 
+        settings.atr_sl, 
+        settings.rr_ratio, 
+        settings.break_even,
+        settings.auto_tune  # 🤖 ส่งค่าเข้าไปใน Database
+    )
     return {"status": "success", "message": f"Updated {symbol}"}
-
-
 
 
 @app.post("/api/trades/close_all")

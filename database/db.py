@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
@@ -55,6 +55,7 @@ class SymbolConfig(Base):
     atr_sl = Column(Float, default=2.0)
     rr_ratio = Column(Float, default=2.0)
     break_even = Column(Float, default=1.5)
+    auto_tune = Column(Boolean, default=False)  # 🤖 เพิ่มสวิตช์ Auto-Tune
 
 # สร้างตารางทั้งหมด (ถ้ายังไม่มี)
 Base.metadata.create_all(bind=engine)
@@ -164,7 +165,7 @@ def get_symbol_config(symbol: str):
     try:
         config = db.query(SymbolConfig).filter(SymbolConfig.symbol == symbol).first()
         if not config: 
-            config = SymbolConfig(symbol=symbol, confidence=54.0, risk_percent=1.0, atr_sl=2.0, rr_ratio=2.0, break_even=1.5)
+            config = SymbolConfig(symbol=symbol, confidence=54.0, risk_percent=1.0, atr_sl=2.0, rr_ratio=2.0, break_even=1.5, auto_tune=False)
             db.add(config)
             db.commit()
             db.refresh(config)
@@ -173,17 +174,18 @@ def get_symbol_config(symbol: str):
             "risk_percent": config.risk_percent,
             "atr_sl": config.atr_sl,
             "rr_ratio": config.rr_ratio,
-            "break_even": config.break_even
+            "break_even": config.break_even,
+            "auto_tune": config.auto_tune # 🤖 คืนค่า Auto-tune
         }
     finally:
         db.close()
 
-def update_symbol_config(symbol: str, confidence: float, risk_percent: float, atr_sl: float, rr_ratio: float, break_even: float):
+def update_symbol_config(symbol: str, confidence: float, risk_percent: float, atr_sl: float, rr_ratio: float, break_even: float, auto_tune: bool = False):
     db = SessionLocal()
     try:
         config = db.query(SymbolConfig).filter(SymbolConfig.symbol == symbol).first()
         if not config:
-            config = SymbolConfig(symbol=symbol, confidence=confidence, risk_percent=risk_percent, atr_sl=atr_sl, rr_ratio=rr_ratio, break_even=break_even)
+            config = SymbolConfig(symbol=symbol, confidence=confidence, risk_percent=risk_percent, atr_sl=atr_sl, rr_ratio=rr_ratio, break_even=break_even, auto_tune=auto_tune)
             db.add(config)
         else:
             config.confidence = confidence
@@ -191,6 +193,7 @@ def update_symbol_config(symbol: str, confidence: float, risk_percent: float, at
             config.atr_sl = atr_sl
             config.rr_ratio = rr_ratio
             config.break_even = break_even
+            config.auto_tune = auto_tune # 🤖 เซฟค่า Auto-tune
         db.commit()
         return True
     finally:

@@ -136,16 +136,13 @@ def run_backtest_pro(symbol, bars=5000):
 
     print(f"\n⚡ เริ่มเตรียมข้อมูล Batch สำหรับ {symbol}...")
     
-    # 🌟🌟🌟 อัปเกรด: AI ประมวลผลแบบ Batch (เหมาจ่ายรวดเดียว โคตรไว!) 🌟🌟🌟
     X_all = []
     for i in range(60, len(df)):
         X_all.append(scaled_data[i-60:i])
     X_all = np.array(X_all)
 
     print("🧠 AI กำลังคำนวณความน่าจะเป็นทั้งหมด (Batch Prediction)...")
-    # สั่ง Predict รวดเดียวจบ ประหยัดเวลาไป 99%
     all_predictions = model.predict(X_all, batch_size=128, verbose=0)
-    # 🌟🌟🌟 สิ้นสุดการอัปเกรด 🌟🌟🌟
 
     print(f"🤖 เริ่มจำลองการเทรด (Auto-Tune: {'🟢 เปิด' if is_auto_tune else '🔴 ปิด'})")
     total_steps = len(df) - 60
@@ -154,10 +151,8 @@ def run_backtest_pro(symbol, bars=5000):
         current_bar = df.iloc[i]
         pred_idx = i - 60
         
-        # ดึงค่า AI ที่คำนวณไว้แล้วมาใช้เลย (ทำให้ลูปวิ่งเร็วเป็นจรวด)
         pred = all_predictions[pred_idx][0]
         
-        # --- Progress Bar ---
         current_step = pred_idx + 1
         if current_step % 500 == 0 or current_step == total_steps:
             percent = (current_step / total_steps) * 100
@@ -166,7 +161,7 @@ def run_backtest_pro(symbol, bars=5000):
 
         atr_14 = current_bar['ATR']
 
-        # โหมด Auto-Tune
+        # 🌟🌟🌟 แก้ไข: ดึงค่าจาก sym_config (ฐานข้อมูล) แทน os.getenv 🌟🌟🌟
         if is_auto_tune:
             atr_50 = current_bar['ATR_50']
             ema_20 = current_bar['EMA_20']
@@ -177,24 +172,24 @@ def run_backtest_pro(symbol, bars=5000):
             is_strong_trend = trend_dist > 0.002
             
             if is_strong_trend:
-                current_conf = float(os.getenv("AUTO_TREND_STRONG_CONFIDENCE", 60.0)) / 100.0
-                current_rr = float(os.getenv("AUTO_TREND_STRONG_RR", 2.0))
+                current_conf = float(sym_config.get('at_trend_strong_conf', 60.0)) / 100.0
+                current_rr = float(sym_config.get('at_trend_strong_rr', 2.0))
             else:
-                current_conf = float(os.getenv("AUTO_TREND_WEAK_CONFIDENCE", 65.0)) / 100.0
-                current_rr = float(os.getenv("AUTO_TREND_WEAK_RR", 1.2))
+                current_conf = float(sym_config.get('at_trend_weak_conf', 65.0)) / 100.0
+                current_rr = float(sym_config.get('at_trend_weak_rr', 1.2))
                 
             if is_high_vol:
-                current_atr_sl = float(os.getenv("AUTO_VOL_HIGH_ATR_SL", 3.0))
-                current_be_mult = float(os.getenv("AUTO_VOL_HIGH_BE", 2.5))
+                current_atr_sl = float(sym_config.get('at_vol_high_atr_sl', 3.0))
+                current_be_mult = float(sym_config.get('at_vol_high_be', 2.5))
             else:
-                current_atr_sl = float(os.getenv("AUTO_VOL_LOW_ATR_SL", 2.0))
-                current_be_mult = float(os.getenv("AUTO_VOL_LOW_BE", 1.5))
+                current_atr_sl = float(sym_config.get('at_vol_low_atr_sl', 2.0))
+                current_be_mult = float(sym_config.get('at_vol_low_be', 1.5))
         else:
             current_conf = manual_conf
             current_rr = manual_rr
             current_atr_sl = manual_atr_sl
             current_be_mult = manual_be
-
+        # 🌟🌟🌟 จบการแก้ไข 🌟🌟🌟
 
         # 🛡️ จัดการออเดอร์
         if in_trade:
@@ -226,7 +221,6 @@ def run_backtest_pro(symbol, bars=5000):
                     engine.execute_trade(entry_time, entry_price, "sell", sl, sl_dist_init, reason)
                     in_trade = False; continue
             continue
-
 
         # 🎯 เข้าเทรด
         sub_df = df.iloc[i-60:i].copy()

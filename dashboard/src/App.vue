@@ -829,19 +829,25 @@ input:checked + .slider:before { transform: translateX(24px); }
 .text-center { text-align: center; color: #8b949e; padding: 30px !important; }
 
 /* 🎯 AI Radar Grid */
-.signal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 15px; margin-bottom: 20px; }
-.signal-box { background: #010409; border: 1px solid #30363d; border-radius: 8px; padding: 12px; }
-.signal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.symbol-text { color: #f0b37e; font-size: 1.2em; font-weight: bold; }
-.signal-badge { font-size: 0.75em; font-weight: bold; padding: 3px 6px; border-radius: 4px; text-transform: uppercase; }
+.signal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 20px; }
+.signal-box { background: #010409; border: 1px solid #30363d; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.signal-box:hover { border-color: #58a6ff; box-shadow: 0 4px 15px rgba(88,166,255,0.1); }
+.signal-header { display: flex; justify-content: space-between; align-items: center; }
+.symbol-text { color: #f0b37e; font-size: 1.25em; font-weight: bold; letter-spacing: 0.5px; }
+
+/* 🌟 สไตล์กล่องสภาวะตลาด (Regime) แบบใหม่ */
+.signal-regime { background: rgba(210,168,255,0.1); color: #d2a8ff; font-size: 0.75em; font-weight: bold; padding: 6px 10px; border-radius: 6px; text-align: center; letter-spacing: 0.5px; border: 1px dashed rgba(210,168,255,0.3); }
+
+.signal-badge { font-size: 0.8em; font-weight: bold; padding: 4px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 .signal-badge.buy, .signal-badge.strong_buy { background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid #3fb950; }
 .signal-badge.sell, .signal-badge.strong_sell { background: rgba(248,81,73,0.2); color: #f85149; border: 1px solid #f85149; }
 .signal-badge.hold, .signal-badge.wait, .signal-badge.sleep, .signal-badge.offline { background: rgba(139,148,158,0.2); color: #8b949e; border: 1px solid #8b949e; }
-.signal-bar-container { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #21262d; margin-bottom: 8px; }
+
+.signal-bar-container { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #21262d; margin-top: 4px; }
 .signal-bar { transition: width 0.5s ease-in-out; }
-.signal-bar.buy { background: #3fb950; }
-.signal-bar.sell { background: #f85149; }
-.signal-stats { display: flex; justify-content: space-between; font-size: 0.75em; font-weight: bold; }
+.signal-bar.buy { background: linear-gradient(90deg, #2ea043, #3fb950); }
+.signal-bar.sell { background: linear-gradient(90deg, #da3633, #f85149); }
+.signal-stats { display: flex; justify-content: space-between; font-size: 0.85em; font-weight: bold; }
 .buy-text { color: #3fb950; }
 .sell-text { color: #f85149; }
 

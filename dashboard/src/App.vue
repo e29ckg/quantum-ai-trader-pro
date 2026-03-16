@@ -65,7 +65,8 @@
                 </div>
             </div>
             
-            <div v-for="(data, sym) in displaySignals" :key="sym" class="signal-box">                
+            <div class="signal-grid">
+              <div v-for="(data, sym) in displaySignals" :key="sym" class="signal-box">                
                 <div class="signal-header">
                   <div style="display: flex; align-items: center; gap: 8px;">
                       <button @click="openSymbolSettingsModal(sym)" class="btn-icon-settings" title="Per-Symbol Settings">⚙️</button>
@@ -87,8 +88,8 @@
                   <span class="buy-text">B: {{ (data.buy_prob || 0).toFixed(1) }}%</span>
                   <span class="sell-text">S: {{ (data.sell_prob || 0).toFixed(1) }}%</span>
                 </div>
-
               </div>
+            </div>
           </section>
         </main>
 
@@ -187,7 +188,7 @@
                 <h1 style="color: #f85149; font-size: 2.8em; margin: 10px 0;">{{ btResult.mdd }}%</h1>
                 <p style="color: #8b949e; font-size: 1.1em;">ความเสี่ยงสูงสุดที่พอร์ตหดตัว</p>
             </div>
-            <div v-if="btResult && btResult.config" class="card" style="margin-top: 20px; padding: 15px; background: #010409; animation: modalFadeIn 0.4s;">
+            <div v-if="btResult && btResult.config" class="card" style="margin-top: 20px; padding: 15px; background: #010409; animation: modalFadeIn 0.4s; grid-column: 1 / -1;">
               <h4 style="color: #8b949e; margin-top: 0; margin-bottom: 12px; border-bottom: 1px solid #30363d; padding-bottom: 8px;">
                   ⚙️ Parameters Used (สูตรที่ใช้ทดสอบ)
               </h4>
@@ -222,37 +223,52 @@
                 <span class="slider round"></span>
              </label>
           </div>
-          <p v-if="tempSettings.auto_tune" style="color: #3fb950; font-size: 0.85em; text-align: center; margin-bottom: 15px;">
-            ✅ AI กำลังควบคุมค่าด้านล่างนี้อัตโนมัติ (Dynamic Adjust)
-          </p>
-          <div v-if="tempSettings.auto_tune" style="background: #010409; border: 1px solid #30363d; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-              <h4 style="margin: 0 0 10px 0; color: #58a6ff; font-size: 0.9em;">🎯 กฎเมื่อมีเทรนด์ (Trend Rule)</h4>
-              <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Strong Trend Conf.</label><input type="number" v-model="tempSettings.at_trend_strong_conf" class="symbol-input" style="padding: 8px;"></div>
-                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Strong Trend R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_strong_rr" class="symbol-input" style="padding: 8px;"></div>
-              </div>
-              <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Weak/Sideway Conf.</label><input type="number" v-model="tempSettings.at_trend_weak_conf" class="symbol-input" style="padding: 8px;"></div>
-                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Weak/Sideway R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_weak_rr" class="symbol-input" style="padding: 8px;"></div>
+
+          <div v-if="tempSettings.auto_tune" class="auto-tune-container">
+              <div class="mini-tabs">
+                  <button @click="activeAutoTuneTab = 'trend'" :class="['mini-tab-btn', { active: activeAutoTuneTab === 'trend' }]">
+                      📈 Trend Rule
+                  </button>
+                  <button @click="activeAutoTuneTab = 'volatility'" :class="['mini-tab-btn', { active: activeAutoTuneTab === 'volatility' }]">
+                      🌊 Volatility Rule
+                  </button>
               </div>
 
-              <h4 style="margin: 15px 0 10px 0; border-top: 1px solid #30363d; padding-top: 10px; color: #f85149; font-size: 0.9em;">🌊 กฎความผันผวน (Volatility Rule)</h4>
-              <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">High Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_atr_sl" class="symbol-input" style="padding: 8px;"></div>
-                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">High Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_be" class="symbol-input" style="padding: 8px;"></div>
+              <div v-if="activeAutoTuneTab === 'trend'" class="tab-content fade-in">
+                  <p style="font-size: 0.75em; color: #58a6ff; margin-top: 0; margin-bottom: 12px; text-align: center;">
+                      🎯 ปรับความแม่น (Conf) และเป้ากำไร (R:R) ตามสภาพตลาด
+                  </p>
+                  <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                      <div style="flex:1"><label class="input-label">Strong Trend Conf.</label><input type="number" v-model="tempSettings.at_trend_strong_conf" class="symbol-input mini-input"></div>
+                      <div style="flex:1"><label class="input-label">Strong Trend R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_strong_rr" class="symbol-input mini-input"></div>
+                  </div>
+                  <div style="display: flex; gap: 10px;">
+                      <div style="flex:1"><label class="input-label">Weak/Sideway Conf.</label><input type="number" v-model="tempSettings.at_trend_weak_conf" class="symbol-input mini-input"></div>
+                      <div style="flex:1"><label class="input-label">Weak/Sideway R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_weak_rr" class="symbol-input mini-input"></div>
+                  </div>
               </div>
-              <div style="display: flex; gap: 10px;">
-                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Low Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_atr_sl" class="symbol-input" style="padding: 8px;"></div>
-                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Low Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_be" class="symbol-input" style="padding: 8px;"></div>
+
+              <div v-if="activeAutoTuneTab === 'volatility'" class="tab-content fade-in">
+                  <p style="font-size: 0.75em; color: #f85149; margin-top: 0; margin-bottom: 12px; text-align: center;">
+                      🛡️ ปรับระยะหลบภัย (SL) และการเลื่อนบังทุน (Break-Even)
+                  </p>
+                  <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                      <div style="flex:1"><label class="input-label">High Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_atr_sl" class="symbol-input mini-input"></div>
+                      <div style="flex:1"><label class="input-label">High Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_be" class="symbol-input mini-input"></div>
+                  </div>
+                  <div style="display: flex; gap: 10px;">
+                      <div style="flex:1"><label class="input-label">Low Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_atr_sl" class="symbol-input mini-input"></div>
+                      <div style="flex:1"><label class="input-label">Low Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_be" class="symbol-input mini-input"></div>
+                  </div>
               </div>
           </div>
 
-          <div class="setting-group" :class="{ 'disabled-group': tempSettings.auto_tune }">
+          <div v-show="!tempSettings.auto_tune" class="setting-group">
               <div class="confidence-header">
                   <span class="confidence-title">🤖 Target Confidence</span>
                   <span class="confidence-value text-green">{{ Number(tempSettings.confidence).toFixed(1) }}%</span>
               </div>
-              <input type="range" min="50.0" max="80.0" step="0.5" v-model="tempSettings.confidence" class="confidence-slider" :disabled="tempSettings.auto_tune" />
+              <input type="range" min="50.0" max="80.0" step="0.5" v-model="tempSettings.confidence" class="confidence-slider" />
           </div>
 
           <div class="setting-group">
@@ -263,28 +279,28 @@
               <input type="range" min="0.1" max="5.0" step="0.1" v-model="tempSettings.risk_percent" class="confidence-slider risk-slider" />
           </div>
           
-          <div class="setting-group" :class="{ 'disabled-group': tempSettings.auto_tune }">
+          <div v-show="!tempSettings.auto_tune" class="setting-group">
               <div class="confidence-header">
                   <span class="confidence-title">🛡️ SL ATR Distance</span>
                   <span class="confidence-value text-green">x{{ Number(tempSettings.atr_sl).toFixed(1) }}</span>
               </div>
-              <input type="range" min="1.0" max="5.0" step="0.1" v-model="tempSettings.atr_sl" class="confidence-slider" style="accent-color: #f85149;" :disabled="tempSettings.auto_tune" />
+              <input type="range" min="1.0" max="5.0" step="0.1" v-model="tempSettings.atr_sl" class="confidence-slider" style="accent-color: #f85149;" />
           </div>
 
-          <div class="setting-group" :class="{ 'disabled-group': tempSettings.auto_tune }">
+          <div v-show="!tempSettings.auto_tune" class="setting-group">
               <div class="confidence-header">
                   <span class="confidence-title">🚀 Take Profit (R:R)</span>
                   <span class="confidence-value text-green">1:{{ Number(tempSettings.rr_ratio).toFixed(1) }}</span>
               </div>
-              <input type="range" min="1.0" max="5.0" step="0.1" v-model="tempSettings.rr_ratio" class="confidence-slider" style="accent-color: #58a6ff;" :disabled="tempSettings.auto_tune" />
+              <input type="range" min="1.0" max="5.0" step="0.1" v-model="tempSettings.rr_ratio" class="confidence-slider" style="accent-color: #58a6ff;" />
           </div>
 
-          <div class="setting-group" :class="{ 'disabled-group': tempSettings.auto_tune }">
+          <div v-show="!tempSettings.auto_tune" class="setting-group">
               <div class="confidence-header">
                   <span class="confidence-title">🔒 Break-Even ATR</span>
                   <span class="confidence-value text-green">x{{ Number(tempSettings.break_even).toFixed(1) }}</span>
               </div>
-              <input type="range" min="1.0" max="3.0" step="0.1" v-model="tempSettings.break_even" class="confidence-slider" style="accent-color: #f0b37e;" :disabled="tempSettings.auto_tune" />
+              <input type="range" min="1.0" max="3.0" step="0.1" v-model="tempSettings.break_even" class="confidence-slider" style="accent-color: #f0b37e;" />
           </div>
           
           <div class="modal-actions">
@@ -363,9 +379,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 
-// ==========================================
-// ⚙️ 1. ประกาศตัวแปร (State) ทั้งหมดให้ครบก่อน
-// ==========================================
 const isAuthenticated = ref(!!localStorage.getItem('access_token'));
 const loginForm = ref({ username: '', password: '' });
 const loginError = ref('');
@@ -404,9 +417,8 @@ const tempSettings = ref({
     at_vol_high_atr_sl: 3.0, at_vol_high_be: 2.5, at_vol_low_atr_sl: 2.0, at_vol_low_be: 1.5
 });
 
-// ==========================================
-// 🧮 2. Computed Properties (สร้างตัวแปรที่คำนวณจากตัวแปรอื่น)
-// ==========================================
+const activeAutoTuneTab = ref('trend');
+
 const activeSymbolList = computed(() => {
   if (!formSettings.value.symbols) return [];
   return formSettings.value.symbols.split(',').map(s => s.trim()).filter(s => s);
@@ -415,44 +427,27 @@ const activeSymbolList = computed(() => {
 const wsStatusText = computed(() => isConnected.value ? '⚡ WS CONNECTED' : '🔌 WS DISCONNECTED');
 const wsStatusClass = computed(() => isConnected.value ? 'ws-connected' : 'ws-disconnected');
 
-// ==========================================
-// 🎯 คำนวณสัญญาณเรดาร์ (โชว์กล่องตลอดเวลาแม้บอทจะปิดอยู่)
-// ==========================================
 const displaySignals = computed(() => {
     const result = {};
-    
-    // 1. สร้างกล่องเปล่าๆ ให้ทุกเหรียญที่ลูกพี่ตั้งค่าไว้ (สถานะ OFFLINE)
     activeSymbolList.value.forEach(sym => {
         result[sym] = { signal: 'OFFLINE 💤', buy_prob: 0, sell_prob: 0 };
     });
-    
-    // 2. ถ้าบอทรันอยู่และมีส่งข้อมูลมา ให้เอาค่าจริงไปทับกล่องเปล่า
     if (botData.value && botData.value.live_signals) {
         Object.keys(botData.value.live_signals).forEach(sym => {
-            // อัปเดตเฉพาะเหรียญที่มีอยู่ในรายการ Active
             if (result[sym]) {
                 result[sym] = botData.value.live_signals[sym];
             }
         });
     }
-    
     return result;
 });
 
-// ==========================================
-// 👀 3. Watchers (ดักจับการเปลี่ยนแปลง)
-// ==========================================
 watch(activeSymbolList, (newList) => {
     if (newList && newList.length > 0 && !newList.includes(btForm.value.symbol)) {
         btForm.value.symbol = newList[0];
     }
 });
 
-
-
-// ==========================================
-// 🛠️ 4. Helpers & Functions (ฟังก์ชันการทำงาน)
-// ==========================================
 const formatMoney = (val) => Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatProfit = (profit) => {
   if (profit === null || profit === undefined) return "-";
@@ -504,7 +499,6 @@ const panicCloseAll = async () => {
     try {
       const res = await fetch(`${API_URL}/api/trades/close_all`, { method: 'POST' });
       const data = await res.json();
-      
       if (res.ok && data.status === "success") {
         alert(data.message);
         fetchTradeHistory(); 
@@ -523,13 +517,11 @@ const handleLogin = async () => {
     const formData = new URLSearchParams();
     formData.append('username', loginForm.value.username);
     formData.append('password', loginForm.value.password);
-
     const res = await fetch(`${API_URL}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData
     });
-
     const data = await res.json();
     if (res.ok) {
       localStorage.setItem('access_token', data.access_token);
@@ -623,7 +615,6 @@ const openSymbolSettingsModal = async (sym) => {
            rr_ratio: data.rr_ratio || 2.0,
            break_even: data.break_even || 1.5,
            auto_tune: data.auto_tune || false,
-           auto_tune: data.auto_tune || false,
            at_trend_strong_conf: data.at_trend_strong_conf || 60.0,
            at_trend_strong_rr: data.at_trend_strong_rr || 2.0,
            at_trend_weak_conf: data.at_trend_weak_conf || 65.0,
@@ -632,7 +623,6 @@ const openSymbolSettingsModal = async (sym) => {
            at_vol_high_be: data.at_vol_high_be || 2.5,
            at_vol_low_atr_sl: data.at_vol_low_atr_sl || 2.0,
            at_vol_low_be: data.at_vol_low_be || 1.5
-
        };
     }
   } catch(e) { console.error("Error fetching symbol settings", e); }
@@ -687,9 +677,6 @@ const initDashboard = () => {
   setInterval(fetchTradeHistory, 10000); 
 };
 
-// ==========================================
-// 🔄 5. Lifecycle Hooks (ทำงานตอนโหลดหน้าเว็บ)
-// ==========================================
 onMounted(() => {
   if (isAuthenticated.value) {
     initDashboard();
@@ -710,7 +697,6 @@ onUnmounted(() => {
   background-color: #0d1117; color: #c9d1d9; 
   font-family: 'Segoe UI', system-ui, sans-serif; overflow-x: hidden; 
 }
-/* 🔐 Login Screen */
 .login-wrapper { display: flex; justify-content: center; align-items: center; height: 100vh; padding: 20px; box-sizing: border-box; }
 .login-box { background: #161b22; padding: 40px; border-radius: 12px; border: 1px solid #30363d; text-align: center; width: 100%; max-width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); box-sizing: border-box; }
 .title-glow { color: #58a6ff; text-shadow: 0 0 10px rgba(88,166,255,0.4); margin-bottom: 5px; }
@@ -721,7 +707,6 @@ onUnmounted(() => {
 .btn-login:hover { filter: brightness(1.2); }
 .error-msg { color: #f85149; margin-top: 15px; font-size: 0.9em; }
 
-/* 📊 Dashboard */
 .dashboard-container { padding: 30px; max-width: 1400px; margin: 0 auto; box-sizing: border-box; }
 .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 15px; margin-bottom: 30px; }
 .version-tag { font-size: 0.4em; vertical-align: top; background: #e34c26; padding: 2px 6px; border-radius: 4px; color: white; }
@@ -732,7 +717,6 @@ onUnmounted(() => {
 .btn-logout { background: transparent; color: #8b949e; border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
 .btn-logout:hover { color: #f85149; border-color: #f85149; }
 
-/* 🌟 Navbar Buttons & Tabs */
 .nav-tabs { display: flex; gap: 15px; margin-left: 30px; flex: 1; }
 .tab-btn { background: transparent; color: #8b949e; border: none; padding: 8px 15px; font-weight: bold; font-size: 1.05em; cursor: pointer; transition: 0.2s; border-bottom: 3px solid transparent; letter-spacing: 0.5px;}
 .tab-btn:hover { color: #c9d1d9; }
@@ -743,7 +727,6 @@ onUnmounted(() => {
 .btn-stop-nav { background: linear-gradient(180deg, #f85149 0%, #da3633 100%); color: white; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; letter-spacing: 0.5px;}
 .btn-stop-nav:hover { filter: brightness(1.2); box-shadow: 0 0 10px rgba(248,81,73,0.4); }
 
-/* 🚨 ปุ่ม Panic Close */
 .btn-panic { background: #8b0000; color: white; border: 1px solid #ff4d4d; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; letter-spacing: 0.5px; animation: pulseRed 2s infinite; }
 .btn-panic:hover { background: #ff4d4d; color: #000; animation: none; box-shadow: 0 0 15px rgba(255,77,77,0.8); }
 @keyframes pulseRed { 
@@ -752,16 +735,13 @@ onUnmounted(() => {
   100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); } 
 }
 
-/* 🧪 Backtest Elements */
 .btn-backtest-run { padding: 12px; background: linear-gradient(180deg, #8957e5 0%, #6b3fb8 100%); color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 1.1em; cursor: pointer; transition: 0.2s; box-shadow: 0 0 10px rgba(137,87,229,0.3); }
 .btn-backtest-run:hover:not(:disabled) { filter: brightness(1.2); box-shadow: 0 0 15px rgba(137,87,229,0.6); }
 .btn-backtest-run:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; box-shadow: none; border: 1px solid #21262d; }
 
-/* 🌟 Config Badges สำหรับหน้า Backtest */
 .config-badge { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; font-weight: bold; }
 .config-badge.active { border-color: #58a6ff; color: #58a6ff; background: rgba(88,166,255,0.1); box-shadow: 0 0 10px rgba(88,166,255,0.2); }
 
-/* 🗂️ Cards & Grid */
 .grid-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
 .card { background: #161b22; padding: 25px; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
 .stats p { font-size: 1.1em; margin: 10px 0; color: #8b949e; }
@@ -770,12 +750,10 @@ onUnmounted(() => {
 .profit strong { color: #3fb950; font-size: 1.4em; }
 .profit.loss strong { color: #f85149; }
 
-/* ⚙️ Global Settings Button */
 .btn-global-settings { background: rgba(88,166,255,0.1); color: #58a6ff; border: 1px solid #58a6ff; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 0.9em; box-shadow: 0 0 10px rgba(88,166,255,0.2); }
 .btn-global-settings:hover { background: #58a6ff; color: #0d1117; }
 .mini-tag { background: rgba(139,148,158,0.2); border: 1px solid #30363d; color: #c9d1d9; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; }
 
-/* 👇 สไตล์กล่องควบคุม Settings */
 .setting-group { margin-bottom: 20px; transition: opacity 0.3s; }
 .disabled-group { opacity: 0.4; pointer-events: none; }
 .confidence-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -788,7 +766,6 @@ onUnmounted(() => {
 .symbol-input { width: 100%; padding: 12px; background: #010409; border: 1px solid #30363d; color: #f0b37e; border-radius: 6px; font-weight: bold; font-size: 1em; box-sizing: border-box; outline: none; transition: 0.2s; }
 .symbol-input:focus { border-color: #58a6ff; }
 
-/* Toggle Switch */
 .switch { position: relative; display: inline-block; width: 50px; height: 26px; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #30363d; transition: .4s; border-radius: 34px; }
@@ -796,7 +773,6 @@ onUnmounted(() => {
 input:checked + .slider { background-color: #58a6ff; }
 input:checked + .slider:before { transform: translateX(24px); }
 
-/* 🏷️ Style สำหรับ Symbol Tags */
 .symbol-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
 .symbol-tag { background: rgba(88,166,255,0.15); color: #58a6ff; border: 1px solid #58a6ff; padding: 6px 12px; border-radius: 20px; font-size: 0.9em; font-weight: bold; display: flex; align-items: center; gap: 8px; box-shadow: 0 0 10px rgba(88,166,255,0.2); }
 .btn-remove-sym { background: rgba(248,81,73,0.2); border: none; color: #f85149; cursor: pointer; font-size: 0.9em; padding: 2px 6px; border-radius: 50%; line-height: 1; outline: none; transition: 0.2s;}
@@ -805,7 +781,6 @@ input:checked + .slider:before { transform: translateX(24px); }
 .btn-add-sym { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 0 20px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; white-space: nowrap;}
 .btn-add-sym:hover { background: #58a6ff; color: #0d1117; border-color: #58a6ff; box-shadow: 0 0 10px rgba(88,166,255,0.4); }
 
-/* 📜 Table */
 .history-section { margin-top: 25px; }
 .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .btn-refresh { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
@@ -828,14 +803,12 @@ input:checked + .slider:before { transform: translateX(24px); }
 .text-neutral { color: #8b949e; }
 .text-center { text-align: center; color: #8b949e; padding: 30px !important; }
 
-/* 🎯 AI Radar Grid */
 .signal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 20px; }
 .signal-box { background: #010409; border: 1px solid #30363d; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
 .signal-box:hover { border-color: #58a6ff; box-shadow: 0 4px 15px rgba(88,166,255,0.1); }
 .signal-header { display: flex; justify-content: space-between; align-items: center; }
 .symbol-text { color: #f0b37e; font-size: 1.25em; font-weight: bold; letter-spacing: 0.5px; }
 
-/* 🌟 สไตล์กล่องสภาวะตลาด (Regime) แบบใหม่ */
 .signal-regime { background: rgba(210,168,255,0.1); color: #d2a8ff; font-size: 0.75em; font-weight: bold; padding: 6px 10px; border-radius: 6px; text-align: center; letter-spacing: 0.5px; border: 1px dashed rgba(210,168,255,0.3); }
 
 .signal-badge { font-size: 0.8em; font-weight: bold; padding: 4px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -851,13 +824,29 @@ input:checked + .slider:before { transform: translateX(24px); }
 .buy-text { color: #3fb950; }
 .sell-text { color: #f85149; }
 
-/* 🌟 Settings Icon in Radar */
 .btn-icon-settings { background: transparent; border: none; font-size: 1.2em; cursor: pointer; transition: 0.3s; opacity: 0.7; padding: 0;}
 .btn-icon-settings:hover { opacity: 1; transform: rotate(90deg); }
 
-/* 🌟 Modal Styles */
+/* 🌟 อัปเกรด Modal Box ให้รองรับจอมือถือ ไม่ล้นขอบ */
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(4px); }
-.modal-box { background: #161b22; padding: 25px; border-radius: 12px; border: 1px solid #30363d; width: 90%; max-width: 350px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); animation: modalFadeIn 0.2s ease-out; }
+.modal-box { 
+    background: #161b22; 
+    padding: 25px; 
+    border-radius: 12px; 
+    border: 1px solid #30363d; 
+    width: 90%; 
+    max-width: 350px; 
+    box-shadow: 0 10px 40px rgba(0,0,0,0.8); 
+    animation: modalFadeIn 0.2s ease-out; 
+    /* สิ่งที่เพิ่มเข้ามา: บังคับไม่ให้สูงเกินจอ และให้ไถเลื่อนขึ้นลงได้ */
+    max-height: 85vh; 
+    overflow-y: auto; 
+}
+/* ซ่อน Scrollbar ให้ดูเนียนตาเหมือนแอป Native */
+.modal-box::-webkit-scrollbar { width: 5px; }
+.modal-box::-webkit-scrollbar-track { background: transparent; }
+.modal-box::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
+
 @keyframes modalFadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
 .modal-title { margin-top: 0; color: #c9d1d9; border-bottom: 1px solid #30363d; padding-bottom: 15px; margin-bottom: 20px; font-size: 1.3em; }
 .modal-actions { display: flex; gap: 12px; margin-top: 30px; }
@@ -866,9 +855,16 @@ input:checked + .slider:before { transform: translateX(24px); }
 .btn-cancel { flex: 1; background: transparent; border: 1px solid #8b949e; color: #8b949e; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
 .btn-cancel:hover { background: #30363d; color: white; }
 
-/* ==========================================
-   📱 MOBILE RESPONSIVE 
-   ========================================== */
+.auto-tune-container { background: #0d1117; border: 1px solid #30363d; padding: 12px; border-radius: 8px; margin-bottom: 20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+.mini-tabs { display: flex; background: #161b22; border-radius: 6px; border: 1px solid #30363d; overflow: hidden; margin-bottom: 12px; }
+.mini-tab-btn { flex: 1; padding: 8px 5px; background: transparent; border: none; color: #8b949e; font-size: 0.8em; font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap;}
+.mini-tab-btn:hover { color: #c9d1d9; background: rgba(255,255,255,0.05); }
+.mini-tab-btn.active { background: rgba(88,166,255,0.15); color: #58a6ff; }
+.input-label { font-size: 0.7em; color: #8b949e; display: block; margin-bottom: 4px; }
+.mini-input { padding: 8px !important; font-size: 0.9em !important; }
+.fade-in { animation: fadeIn 0.2s ease-in-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
 @media (max-width: 768px) {
   .dashboard-container { padding: 15px; } 
   .header { flex-direction: column; align-items: flex-start; gap: 15px; }

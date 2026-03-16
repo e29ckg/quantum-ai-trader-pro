@@ -185,6 +185,9 @@ def check_and_notify_closed_trades():
 # ==========================================
 # 🧠 วัฏจักรการทำงานหลัก (Main Loop)
 # ==========================================
+# ==========================================
+# 🧠 วัฏจักรการทำงานหลัก (Main Loop)
+# ==========================================
 def run_bot_cycle(active_symbols: list):
     send_daily_summary(active_symbols)
     check_and_notify_closed_trades()
@@ -203,70 +206,66 @@ def run_bot_cycle(active_symbols: list):
     for symbol in active_symbols:
         sym_config = get_symbol_config(symbol)
 
-        # 🌟🌟🌟 ดึงกราฟก่อน เพื่อเอามาให้ระบบ Auto-Tune ใช้วิเคราะห์ 🌟🌟🌟
+        # ดึงกราฟมาก่อน
         df = get_candles(symbol, TIMEFRAME, bars=200)
         if df is None or df.empty:
             continue
 
+        regime_text = "SCANNING..."
+
+        # 🌟🌟🌟 แก้ Error: คำนวณ TR (True Range) ตรงนี้ก่อนใช้งาน 🌟🌟🌟
+        high_low = df['high'] - df['low']
+        high_close = (df['high'] - df['close'].shift()).abs()
+        low_close = (df['low'] - df['close'].shift()).abs()
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        
         # 🤖🤖🤖 ระบบสมองกลปรับค่าอัตโนมัติ (Dynamic Auto-Tune) 🤖🤖🤖
+        atr_14 = tr.rolling(14).mean().iloc[-1]
+        atr_50 = tr.rolling(50).mean().iloc[-1]
+        ema_20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
+        ema_50 = df['close'].ewm(span=50, adjust=False).mean().iloc[-1]
+        
+        is_high_vol = atr_14 > (atr_50 * 1.2)
+        trend_dist = abs(ema_20 - ema_50) / ema_50
+        is_strong_trend = trend_dist > 0.002
+        
+        # 🌟 สร้างคำอธิบายสภาวะตลาด
+        t_str = "🔥 STRONG TREND" if is_strong_trend else "💤 SIDEWAY"
+        v_str = "🌊 HIGH VOL" if is_high_vol else "🧊 LOW VOL"
+        regime_text = f"{t_str} | {v_str}"
+        
         if sym_config.get('auto_tune', False):
-            try:
-                # 1. วัดความผันผวน (ATR)
-                high_low = df['high'] - df['low']
-                high_close = (df['high'] - df['close'].shift()).abs()
-                low_close = (df['low'] - df['close'].shift()).abs()
-                tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-                atr_14 = tr.rolling(14).mean().iloc[-1]
-                atr_50 = tr.rolling(50).mean().iloc[-1]
+            # 🌟 ดึงค่าจาก Database ของใครของมัน
+            if is_strong_trend:
+                sym_config['confidence'] = sym_config['at_trend_strong_conf']
+                sym_config['rr_ratio'] = sym_config['at_trend_strong_rr']
+            else:
+                sym_config['confidence'] = sym_config['at_trend_weak_conf']
+                sym_config['rr_ratio'] = sym_config['at_trend_weak_rr']
                 
-                # 2. วัดเทรนด์ (EMA)
-                ema_20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
-                ema_50 = df['close'].ewm(span=50, adjust=False).mean().iloc[-1]
-                trend_dist = abs(ema_20 - ema_50) / ema_50
+            if is_high_vol:
+                sym_config['atr_sl'] = sym_config['at_vol_high_atr_sl']
+                sym_config['break_even'] = sym_config['at_vol_high_be']
+            else:
+                sym_config['atr_sl'] = sym_config['at_vol_low_atr_sl']
+                sym_config['break_even'] = sym_config['at_vol_low_be']
                 
-                is_high_vol = atr_14 > (atr_50 * 1.2)
-                is_strong_trend = trend_dist > 0.002
-                
-                # เปลี่ยนค่าตามตลาด
-                if is_strong_trend:
-                    sym_config['confidence'] = float(os.getenv("AUTO_TREND_STRONG_CONFIDENCE", 52.0))
-                    sym_config['rr_ratio'] = float(os.getenv("AUTO_TREND_STRONG_RR", 2.5))
-                else:
-                    sym_config['confidence'] = float(os.getenv("AUTO_TREND_WEAK_CONFIDENCE", 58.0))
-                    sym_config['rr_ratio'] = float(os.getenv("AUTO_TREND_WEAK_RR", 1.5))
-                    
-                if is_high_vol:
-                    sym_config['atr_sl'] = float(os.getenv("AUTO_VOL_HIGH_ATR_SL", 2.5))
-                    sym_config['break_even'] = float(os.getenv("AUTO_VOL_HIGH_BE", 2.0))
-                else:
-                    sym_config['atr_sl'] = float(os.getenv("AUTO_VOL_LOW_ATR_SL", 1.5))
-                    sym_config['break_even'] = float(os.getenv("AUTO_VOL_LOW_BE", 1.2))
-                    
-                # เซฟลง Database
-                update_symbol_config(
-                    symbol, 
-                    sym_config['confidence'], 
-                    sym_config['risk_percent'], 
-                    sym_config['atr_sl'], 
-                    sym_config['rr_ratio'], 
-                    sym_config['break_even'], 
-                    True
-                )
-            except Exception as e:
-                print(f"⚠️ [Auto-Tune Error] {symbol}: {e}")
+            # อัปเดตค่าลง Database
+            from database.db import update_symbol_config
+            update_symbol_config(symbol, sym_config)
         # 🤖🤖🤖 จบระบบ Auto-Tune 🤖🤖🤖
 
-        # ดึงค่า (ที่อาจจะโดน Auto-Tune จูนแล้ว หรือค่าปกติจากเว็บ) มาใช้งาน
+        # ดึงตัวแปรมาใช้งาน
         target_confidence_percent = sym_config["confidence"]
         risk_percent = sym_config["risk_percent"]
         atr_mult = sym_config["atr_sl"]
         rr_ratio = sym_config["rr_ratio"]
         break_even_mult = sym_config["break_even"]
 
-        # โยน atr_mult ไปให้ Trailing Stop ใช้ด้วย
+        # โยน atr_mult ไปให้ Trailing Stop
         manage_dynamic_trailing_stop(symbol, timeframe=TIMEFRAME, atr_multiplier=atr_mult)
 
-        # 3. AI ประมวลผลสถานการณ์ปัจจุบัน
+        # AI ประมวลผลสถานการณ์ปัจจุบัน
         trend = detect_trend(df)
         raw_signal = choose_strategy(trend)
         liq_signal = liquidity_filter(df, raw_signal)
@@ -282,31 +281,29 @@ def run_bot_cycle(active_symbols: list):
         display_signal = liq_signal.upper() if liq_signal != "hold" else "HOLD"
         if not is_trading_time:
             display_signal = "SLEEP 💤"
+            regime_text = "MARKET CLOSED"
 
         # ส่งค่าขึ้นไปโชว์ที่ Dashboard
         live_signals[symbol] = {
             "signal": display_signal,
             "buy_prob": buy_prob,
-            "sell_prob": sell_prob
+            "sell_prob": sell_prob,
+            "regime": regime_text
         }
 
-        # แสดงเป้าหมายรายเหรียญใน Console (โชว์บอกด้วยว่า Auto-Tune ทำงานไหม)
+        # โชว์ใน Console (Terminal)
         mode_str = "🤖 [AUTO]" if sym_config.get('auto_tune', False) else "⚙️ [MANUAL]"
-        print(f"[{time.strftime('%H:%M:%S')}] 🔍 {symbol} {mode_str} | SMC: {liq_signal.upper()} | AI BUY: {buy_prob:.1f}% | AI SELL: {sell_prob:.1f}% | 🎯 เป้า: {target_confidence_percent:.1f}%")
+        print(f"[{time.strftime('%H:%M:%S')}] 🔍 {symbol} {mode_str} | SMC: {liq_signal.upper()} | B: {buy_prob:.1f}% S: {sell_prob:.1f}% | 🎯 {target_confidence_percent:.1f}% | {regime_text}")
 
         # ==========================================
         # 🛡️ โซนจัดการออเดอร์ (เมื่อมีของอยู่ในมือ)
         # ==========================================
         positions = mt5.positions_get(symbol=symbol)
         if positions is not None and len(positions) > 0:
-            
             for pos in positions:
                 sync_manual_order_to_db(pos)
-                
-                # เลื่อน SL บังทุน (Break-Even)
                 apply_break_even(pos, df, break_even_mult)
                 
-                # ชิงเผ่นหนีตาย (AI Reversal Exit)
                 close_trade = False
                 if pos.type == mt5.ORDER_TYPE_BUY and liq_signal in ["sell", "strong_sell"] and sell_prob >= target_confidence_percent:
                     close_trade = True
@@ -332,7 +329,6 @@ def run_bot_cycle(active_symbols: list):
                         )
                         send_telegram_message(msg)
                         print(f"🚨 [AI Reversal] สั่งปิด {symbol} (Ticket: {pos.ticket}) | PnL: {profit_sign}${net_profit:.2f} เรียบร้อย!")
-            
             continue
 
         # ==========================================
@@ -358,14 +354,8 @@ def run_bot_cycle(active_symbols: list):
             min_lot, step_lot = symbol_info.volume_min, symbol_info.volume_step
             lot = round(max(raw_lot, min_lot) / step_lot) * step_lot
             
-            # คำนวณระยะ SL และ TP อัตโนมัติด้วย ATR + R:R Ratio
-            high_low = df['high'] - df['low']
-            high_close = (df['high'] - df['close'].shift()).abs()
-            low_close = (df['low'] - df['close'].shift()).abs()
-            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-            atr = tr.rolling(14).mean().iloc[-1]
-            
-            sl_distance = atr * atr_mult
+            # คำนวณระยะด้วย ATR
+            sl_distance = atr_14 * atr_mult
             tp_distance = sl_distance * rr_ratio
             
             tick = mt5.symbol_info_tick(symbol)

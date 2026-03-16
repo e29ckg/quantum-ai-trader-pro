@@ -42,6 +42,15 @@ class SymbolSettingUpdate(BaseModel):
     rr_ratio: float
     break_even: float
     auto_tune: bool  # 🤖 เพิ่มบรรทัดนี้
+    # 🤖 เพิ่มพารามิเตอร์ Auto-Tune เข้ามา
+    at_trend_strong_conf: float
+    at_trend_strong_rr: float
+    at_trend_weak_conf: float
+    at_trend_weak_rr: float
+    at_vol_high_atr_sl: float
+    at_vol_high_be: float
+    at_vol_low_atr_sl: float
+    at_vol_low_be: float
 
 
 # ==========================================
@@ -126,17 +135,9 @@ def api_get_sym_setting(symbol: str):
 
 @app.post("/api/settings/symbol/{symbol}")
 def api_update_sym_setting(symbol: str, settings: SymbolSettingUpdate):
-    update_symbol_config(
-        symbol, 
-        settings.confidence, 
-        settings.risk_percent, 
-        settings.atr_sl, 
-        settings.rr_ratio, 
-        settings.break_even,
-        settings.auto_tune  # 🤖 ส่งค่าเข้าไปใน Database
-    )
+    # ส่งค่าทั้งหมดไปเซฟแบบ Dictionary
+    update_symbol_config(symbol, settings.dict())
     return {"status": "success", "message": f"Updated {symbol}"}
-
 
 @app.post("/api/trades/close_all")
 def api_close_all_positions():

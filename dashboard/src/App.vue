@@ -65,14 +65,17 @@
                 </div>
             </div>
             
-            <div class="signal-grid">
-              <div v-for="(data, sym) in displaySignals" :key="sym" class="signal-box">
+            <div v-for="(data, sym) in displaySignals" :key="sym" class="signal-box">                
                 <div class="signal-header">
                   <div style="display: flex; align-items: center; gap: 8px;">
                       <button @click="openSymbolSettingsModal(sym)" class="btn-icon-settings" title="Per-Symbol Settings">⚙️</button>
                       <span class="symbol-text">{{ sym }}</span>
                   </div>
                   <span class="signal-badge" :class="(data.signal || 'offline').toLowerCase().split(' ')[0]">{{ data.signal }}</span>
+                </div>
+                
+                <div class="signal-regime">
+                  {{ data.regime || 'WAITING FOR DATA...' }}
                 </div>
                 
                 <div class="signal-bar-container">
@@ -84,12 +87,8 @@
                   <span class="buy-text">B: {{ (data.buy_prob || 0).toFixed(1) }}%</span>
                   <span class="sell-text">S: {{ (data.sell_prob || 0).toFixed(1) }}%</span>
                 </div>
-              </div>
 
-              <div v-if="Object.keys(displaySignals).length === 0" style="color:#8b949e; font-size: 0.9em; grid-column: 1 / -1; text-align: center; padding: 20px;">
-                  *กรุณาเพิ่มคู่เงินที่จะเทรดในหน้า GLOBAL SETTINGS
               </div>
-            </div>
           </section>
         </main>
 
@@ -226,6 +225,27 @@
           <p v-if="tempSettings.auto_tune" style="color: #3fb950; font-size: 0.85em; text-align: center; margin-bottom: 15px;">
             ✅ AI กำลังควบคุมค่าด้านล่างนี้อัตโนมัติ (Dynamic Adjust)
           </p>
+          <div v-if="tempSettings.auto_tune" style="background: #010409; border: 1px solid #30363d; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+              <h4 style="margin: 0 0 10px 0; color: #58a6ff; font-size: 0.9em;">🎯 กฎเมื่อมีเทรนด์ (Trend Rule)</h4>
+              <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Strong Trend Conf.</label><input type="number" v-model="tempSettings.at_trend_strong_conf" class="symbol-input" style="padding: 8px;"></div>
+                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Strong Trend R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_strong_rr" class="symbol-input" style="padding: 8px;"></div>
+              </div>
+              <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Weak/Sideway Conf.</label><input type="number" v-model="tempSettings.at_trend_weak_conf" class="symbol-input" style="padding: 8px;"></div>
+                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Weak/Sideway R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_weak_rr" class="symbol-input" style="padding: 8px;"></div>
+              </div>
+
+              <h4 style="margin: 15px 0 10px 0; border-top: 1px solid #30363d; padding-top: 10px; color: #f85149; font-size: 0.9em;">🌊 กฎความผันผวน (Volatility Rule)</h4>
+              <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">High Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_atr_sl" class="symbol-input" style="padding: 8px;"></div>
+                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">High Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_be" class="symbol-input" style="padding: 8px;"></div>
+              </div>
+              <div style="display: flex; gap: 10px;">
+                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Low Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_atr_sl" class="symbol-input" style="padding: 8px;"></div>
+                  <div style="flex:1"><label style="font-size:0.7em; color:#8b949e;">Low Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_be" class="symbol-input" style="padding: 8px;"></div>
+              </div>
+          </div>
 
           <div class="setting-group" :class="{ 'disabled-group': tempSettings.auto_tune }">
               <div class="confidence-header">
@@ -378,7 +398,11 @@ const newSymbol = ref('');
 const showGlobalModal = ref(false);
 const showSymbolModal = ref(false);
 const currentEditSymbol = ref('');
-const tempSettings = ref({ confidence: 54.0, risk_percent: 1.0, atr_sl: 2.0, rr_ratio: 2.0, break_even: 1.5, auto_tune: false });
+const tempSettings = ref({ 
+    confidence: 54.0, risk_percent: 1.0, atr_sl: 2.0, rr_ratio: 2.0, break_even: 1.5, auto_tune: false,
+    at_trend_strong_conf: 60.0, at_trend_strong_rr: 2.0, at_trend_weak_conf: 65.0, at_trend_weak_rr: 1.2,
+    at_vol_high_atr_sl: 3.0, at_vol_high_be: 2.5, at_vol_low_atr_sl: 2.0, at_vol_low_be: 1.5
+});
 
 // ==========================================
 // 🧮 2. Computed Properties (สร้างตัวแปรที่คำนวณจากตัวแปรอื่น)
@@ -598,7 +622,17 @@ const openSymbolSettingsModal = async (sym) => {
            atr_sl: data.atr_sl || 2.0,
            rr_ratio: data.rr_ratio || 2.0,
            break_even: data.break_even || 1.5,
-           auto_tune: data.auto_tune || false
+           auto_tune: data.auto_tune || false,
+           auto_tune: data.auto_tune || false,
+           at_trend_strong_conf: data.at_trend_strong_conf || 60.0,
+           at_trend_strong_rr: data.at_trend_strong_rr || 2.0,
+           at_trend_weak_conf: data.at_trend_weak_conf || 65.0,
+           at_trend_weak_rr: data.at_trend_weak_rr || 1.2,
+           at_vol_high_atr_sl: data.at_vol_high_atr_sl || 3.0,
+           at_vol_high_be: data.at_vol_high_be || 2.5,
+           at_vol_low_atr_sl: data.at_vol_low_atr_sl || 2.0,
+           at_vol_low_be: data.at_vol_low_be || 1.5
+
        };
     }
   } catch(e) { console.error("Error fetching symbol settings", e); }
@@ -613,15 +647,8 @@ const saveSymbolSettings = async () => {
   try {
     const res = await fetch(`${API_URL}/api/settings/symbol/${currentEditSymbol.value}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            confidence: parseFloat(tempSettings.value.confidence),
-            risk_percent: parseFloat(tempSettings.value.risk_percent),
-            atr_sl: parseFloat(tempSettings.value.atr_sl),
-            rr_ratio: parseFloat(tempSettings.value.rr_ratio),
-            break_even: parseFloat(tempSettings.value.break_even),
-            auto_tune: tempSettings.value.auto_tune
-        })
+        headers: { 'Content-Type': 'application/json' },        
+        body: JSON.stringify(tempSettings.value)
     });
     if(res.ok) {
         alert(`✅ อัปเดตการตั้งค่าระยะเอาตัวรอดสำหรับ ${currentEditSymbol.value} เรียบร้อย!`);

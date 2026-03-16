@@ -55,7 +55,18 @@ class SymbolConfig(Base):
     atr_sl = Column(Float, default=2.0)
     rr_ratio = Column(Float, default=2.0)
     break_even = Column(Float, default=1.5)
-    auto_tune = Column(Boolean, default=False)  # 🤖 เพิ่มสวิตช์ Auto-Tune
+    auto_tune = Column(Boolean, default=False)
+    
+    # 🤖 กฎ Auto-Tune ประจำเหรียญ
+    at_trend_strong_conf = Column(Float, default=60.0)
+    at_trend_strong_rr = Column(Float, default=2.0)
+    at_trend_weak_conf = Column(Float, default=65.0)
+    at_trend_weak_rr = Column(Float, default=1.2)
+    at_vol_high_atr_sl = Column(Float, default=3.0)
+    at_vol_high_be = Column(Float, default=2.5)
+    at_vol_low_atr_sl = Column(Float, default=2.0)
+    at_vol_low_be = Column(Float, default=1.5)
+    market_regime = Column(String, default="WAITING") # เก็บสถานะตลาด
 
 # สร้างตารางทั้งหมด (ถ้ายังไม่มี)
 Base.metadata.create_all(bind=engine)
@@ -165,35 +176,28 @@ def get_symbol_config(symbol: str):
     try:
         config = db.query(SymbolConfig).filter(SymbolConfig.symbol == symbol).first()
         if not config: 
-            config = SymbolConfig(symbol=symbol, confidence=54.0, risk_percent=1.0, atr_sl=2.0, rr_ratio=2.0, break_even=1.5, auto_tune=False)
+            config = SymbolConfig(symbol=symbol)
             db.add(config)
             db.commit()
             db.refresh(config)
-        return {
-            "confidence": config.confidence, 
-            "risk_percent": config.risk_percent,
-            "atr_sl": config.atr_sl,
-            "rr_ratio": config.rr_ratio,
-            "break_even": config.break_even,
-            "auto_tune": config.auto_tune # 🤖 คืนค่า Auto-tune
-        }
+        
+        # ส่งค่ากลับไปเป็น Dictionary ให้หมด
+        return {c.name: getattr(config, c.name) for c in config.__table__.columns}
     finally:
         db.close()
 
-def update_symbol_config(symbol: str, confidence: float, risk_percent: float, atr_sl: float, rr_ratio: float, break_even: float, auto_tune: bool = False):
+def update_symbol_config(symbol: str, data: dict):
     db = SessionLocal()
     try:
         config = db.query(SymbolConfig).filter(SymbolConfig.symbol == symbol).first()
         if not config:
-            config = SymbolConfig(symbol=symbol, confidence=confidence, risk_percent=risk_percent, atr_sl=atr_sl, rr_ratio=rr_ratio, break_even=break_even, auto_tune=auto_tune)
+            config = SymbolConfig(symbol=symbol)
             db.add(config)
-        else:
-            config.confidence = confidence
-            config.risk_percent = risk_percent
-            config.atr_sl = atr_sl
-            config.rr_ratio = rr_ratio
-            config.break_even = break_even
-            config.auto_tune = auto_tune # 🤖 เซฟค่า Auto-tune
+            
+        for key, value in data.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
+                
         db.commit()
         return True
     finally:

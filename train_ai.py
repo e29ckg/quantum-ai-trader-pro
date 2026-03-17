@@ -10,12 +10,12 @@ from mt5_engine.connect import connect_mt5
 from database.db import get_bot_settings_db
 
 # ==========================================
-# ⚙️ ตั้งค่าการเทรน V4.0 (ดัดนิสัย AI แก้โรคสมองตีบตัน)
+# ⚙️ ตั้งค่าการเทรน V4.0 (Sync กับ Quantum AI PRO)
 # ==========================================
 TIMEFRAME = mt5.TIMEFRAME_M15 
-NUM_BARS = 15000    # ดึงข้อมูลเยอะขึ้นเป็น 15,000 แท่ง
+NUM_BARS = 15000    # ดึงข้อมูล 15,000 แท่ง
 SEQ_LENGTH = 60     # มองย้อนหลัง 60 แท่ง
-LOOKAHEAD = 5       # 🔮 [ใหม่] มองข้ามช็อตไปอนาคต 5 แท่ง
+LOOKAHEAD = 5       # 🔮 มองข้ามช็อตไปอนาคต 5 แท่ง
 EPOCHS = 50         
 BATCH_SIZE = 64     
 
@@ -31,18 +31,16 @@ def add_indicators(df):
     return df
 
 def prepare_data_v4(df, seq_length, lookahead):
-    """ฟังก์ชันสร้างข้อสอบแบบใหม่ บังคับให้ AI หาจุด Breakout"""
-    # 1. ทายว่าในอนาคตราคาจะพุ่งไปถึงไหน
+    """ฟังก์ชันสร้างข้อสอบแบบให้เข้ากับระบบ 1=UP, 0=DOWN"""
+    # 1. ดูราคาปิดในอนาคต 5 แท่ง
     df['future_close'] = df['close'].shift(-lookahead)
     df.dropna(inplace=True)
     
-    # 2. ตั้งเป้าหมาย (Threshold) เช่น ราคาต้องวิ่งขึ้นเกิน 0.05% ของราคาปัจจุบัน ถึงจะนับว่าเป็นเทรนด์
-    # ถ้าวิ่งไม่ถึง ถือว่าเป็นไซด์เวย์ (Noise) ให้เป็น 0
-    threshold = df['close'] * 0.0005 
-    df['target'] = np.where((df['future_close'] - df['close']) > threshold, 1, 0)
+    # 2. 🌟 แก้ไข: 1 = อนาคตสูงกว่าปัจจุบัน (BUY), 0 = อนาคตต่ำกว่าปัจจุบัน (SELL)
+    df['target'] = np.where(df['future_close'] > df['close'], 1, 0)
     
-    # 3. เตรียมข้อมูลเข้าเรียน
-    features = ['open', 'high', 'low', 'close', 'volume', 'EMA_20', 'EMA_50', 'RSI_14']
+    # 3. 🌟 แก้ไข: ใช้ tick_volume ให้ตรงกับบอทเทรด 100%
+    features = ['open', 'high', 'low', 'close', 'tick_volume', 'EMA_20', 'EMA_50', 'RSI_14']
     data_to_scale = df[features].values
     
     scaler = MinMaxScaler(feature_range=(0, 1))
@@ -52,7 +50,7 @@ def prepare_data_v4(df, seq_length, lookahead):
     targets = df['target'].values
     for i in range(len(scaled_features) - seq_length):
         X.append(scaled_features[i:i + seq_length])
-        y.append(targets[i + seq_length - 1]) # เฉลยคือ Target ของแท่งปัจจุบัน
+        y.append(targets[i + seq_length - 1]) 
         
     return np.array(X), np.array(y)
 
@@ -61,6 +59,7 @@ if __name__ == "__main__":
     
     settings = get_bot_settings_db()
     SYMBOLS = [s.strip() for s in settings.symbols.split(",") if s.strip()]
+    # SYMBOLS = ["ETHUSDm"]
     
     print(f"📥 อ่านรายชื่อเหรียญจาก Database: {SYMBOLS}")
     
@@ -73,13 +72,12 @@ if __name__ == "__main__":
         if rates is None: continue
             
         df = pd.DataFrame(rates)
-        if 'tick_volume' in df.columns:
-            df.rename(columns={'tick_volume': 'volume'}, inplace=True)
+        # ❌ ไม่ต้องแก้ชื่อคอลัมน์แล้ว ปล่อยให้เป็น tick_volume เหมือนที่ MT5 ส่งมา
         df['time'] = pd.to_datetime(df['time'], unit='s')
         
         df = add_indicators(df)
         
-        # 🌟 เรียกใช้ฟังก์ชันสร้างข้อสอบแบบใหม่!
+        # 🌟 เรียกใช้ฟังก์ชันสร้างข้อสอบ
         X, y = prepare_data_v4(df, SEQ_LENGTH, LOOKAHEAD)
         
         split_ratio = int(len(X) * 0.8)
@@ -93,12 +91,11 @@ if __name__ == "__main__":
             LSTM(64),
             Dropout(0.3),
             Dense(32, activation='relu'),
-            Dense(1, activation='sigmoid') # ทายผล 0 ถึง 1
+            Dense(1, activation='sigmoid') 
         ])
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
         
-        print(f"🚀 เริ่มเทรน {symbol} (สอนให้หา Breakout)...")
-        # ใส่ class_weight เผื่อกรณีกราฟไซด์เวย์เยอะกว่ากราฟพุ่ง AI จะได้ไม่ลำเอียง
+        print(f"🚀 เริ่มเทรน {symbol} (สอนให้มองอนาคต {LOOKAHEAD} แท่ง)...")
         model.fit(X_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE, validation_data=(X_test, y_test), verbose=1)
         
         os.makedirs("ai_engine", exist_ok=True)

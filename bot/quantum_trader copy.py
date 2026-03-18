@@ -188,9 +188,6 @@ def check_and_notify_closed_trades():
 # ==========================================
 # 🧠 วัฏจักรการทำงานหลัก (Main Loop)
 # ==========================================
-# ==========================================
-# 🧠 วัฏจักรการทำงานหลัก (Main Loop) - V4.1 (Defense + Add-On)
-# ==========================================
 def run_bot_cycle(active_symbols: list):
     send_daily_summary(active_symbols)
     check_and_notify_closed_trades()
@@ -205,9 +202,6 @@ def run_bot_cycle(active_symbols: list):
         is_trading_time = start_time <= now_time <= end_time
     else:
         is_trading_time = now_time >= start_time or now_time <= end_time
-        
-    # 🌟🌟🌟 ตั้งค่าโควต้า Add-On 🌟🌟🌟
-    MAX_TOTAL_POSITIONS = 2 # จำนวนออเดอร์สูงสุดต่อ 1 เหรียญ (ไม้หลัก 1 + ไม้ Add-on 1)
     
     for symbol in active_symbols:
         sym_config = get_symbol_config(symbol)
@@ -219,7 +213,7 @@ def run_bot_cycle(active_symbols: list):
 
         regime_text = "SCANNING..."
 
-        # คำนวณ TR (True Range) 
+        # 🌟🌟🌟 แก้ Error: คำนวณ TR (True Range) ตรงนี้ก่อนใช้งาน 🌟🌟🌟
         high_low = df['high'] - df['low']
         high_close = (df['high'] - df['close'].shift()).abs()
         low_close = (df['low'] - df['close'].shift()).abs()
@@ -302,23 +296,13 @@ def run_bot_cycle(active_symbols: list):
         print(f"[{time.strftime('%H:%M:%S')}] 🔍 {symbol} {mode_str} | SMC: {liq_signal.upper()} | B: {buy_prob:.1f}% S: {sell_prob:.1f}% | 🎯 {target_confidence_percent:.1f}% | {regime_text}")
 
         # ==========================================
-        # 🛡️ โซนจัดการออเดอร์ (บีบโล่ + เติมกระสุน Add-on)
+        # 🛡️ โซนจัดการออเดอร์ (เมื่อมีของอยู่ในมือ)
         # ==========================================
         positions = mt5.positions_get(symbol=symbol)
-        
         if positions is not None and len(positions) > 0:
-            main_position = None
-            addon_count = 0
-            
             for pos in positions:
                 sync_manual_order_to_db(pos)
                 apply_break_even(pos, df, break_even_mult)
-                
-                # จำแนกประเภทไม้
-                if pos.comment == "AI Addon":
-                    addon_count += 1
-                else:
-                    main_position = pos # ถือเป็นไม้หลัก
                 
                 # 🛡️ ท่าไม้ตาย: ตั้งป้อมบีบโล่ (Aggressive Defense Mode)
                 defense_mode = False
@@ -338,91 +322,55 @@ def run_bot_cycle(active_symbols: list):
                         
                         if pos.type == mt5.ORDER_TYPE_BUY:
                             new_sl = tick.bid - aggressive_dist
+                            # 🔒 อัปเดต SL เฉพาะเมื่อเส้นใหม่มัน "สูงกว่า" SL เดิม (ขยับบีบขึ้นเท่านั้น)
                             if pos.sl == 0.0 or new_sl > pos.sl:
                                 new_sl = round(new_sl, sym_info.digits)
                                 request = {
-                                    "action": mt5.TRADE_ACTION_SLTP, "symbol": symbol,
-                                    "sl": new_sl, "tp": pos.tp, "position": pos.ticket
+                                    "action": mt5.TRADE_ACTION_SLTP,
+                                    "symbol": symbol,
+                                    "sl": new_sl,
+                                    "tp": pos.tp,
+                                    "position": pos.ticket
                                 }
                                 res = mt5.order_send(request)
                                 if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                                    msg = (f"🛡️ <b>AI DEFENSE MODE (ตั้งป้อมบีบโล่)</b> 🛡️\n\n"
-                                           f"💱 <b>Symbol:</b> {symbol}\n📦 <b>Type:</b> BUY (Ticket: {pos.ticket})\n"
-                                           f"🚨 <b>Reason:</b> AI ตรวจพบแรงเทขาย กราฟอาจจะทุบ!\n🎯 <b>Action:</b> ร่น SL มาที่ <b>{new_sl}</b>")
+                                    msg = (
+                                        f"🛡️ <b>AI DEFENSE MODE (ตั้งป้อมบีบโล่)</b> 🛡️\n\n"
+                                        f"💱 <b>Symbol:</b> {symbol}\n"
+                                        f"📦 <b>Type:</b> BUY (Ticket: {pos.ticket})\n"
+                                        f"🚨 <b>Reason:</b> AI ตรวจพบแรงเทขาย กราฟอาจจะทุบ!\n"
+                                        f"🎯 <b>Action:</b> ร่น SL มาป้องกันตัวที่ <b>{new_sl}</b> (ระยะ 0.5 ATR)"
+                                    )
                                     send_telegram_message(msg)
-                                    print(f"🛡️ [Defense Mode] เลื่อน SL ฝั่ง BUY {symbol} บีบแคบสุดๆ ที่ {new_sl}")
+                                    print(f"🛡️ [Defense Mode] เลื่อน SL ฝั่ง BUY เหรียญ {symbol} บีบแคบสุดๆ ที่ {new_sl}")
 
                         elif pos.type == mt5.ORDER_TYPE_SELL:
                             new_sl = tick.ask + aggressive_dist
+                            # 🔒 อัปเดต SL เฉพาะเมื่อเส้นใหม่มัน "ต่ำกว่า" SL เดิม (ขยับบีบลงเท่านั้น)
                             if pos.sl == 0.0 or new_sl < pos.sl:
                                 new_sl = round(new_sl, sym_info.digits)
                                 request = {
-                                    "action": mt5.TRADE_ACTION_SLTP, "symbol": symbol,
-                                    "sl": new_sl, "tp": pos.tp, "position": pos.ticket
+                                    "action": mt5.TRADE_ACTION_SLTP,
+                                    "symbol": symbol,
+                                    "sl": new_sl,
+                                    "tp": pos.tp,
+                                    "position": pos.ticket
                                 }
                                 res = mt5.order_send(request)
                                 if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                                    msg = (f"🛡️ <b>AI DEFENSE MODE (ตั้งป้อมบีบโล่)</b> 🛡️\n\n"
-                                           f"💱 <b>Symbol:</b> {symbol}\n📦 <b>Type:</b> SELL (Ticket: {pos.ticket})\n"
-                                           f"🚨 <b>Reason:</b> AI ตรวจพบแรงซื้อ กราฟอาจจะพุ่งสวน!\n🎯 <b>Action:</b> ร่น SL มาที่ <b>{new_sl}</b>")
+                                    msg = (
+                                        f"🛡️ <b>AI DEFENSE MODE (ตั้งป้อมบีบโล่)</b> 🛡️\n\n"
+                                        f"💱 <b>Symbol:</b> {symbol}\n"
+                                        f"📦 <b>Type:</b> SELL (Ticket: {pos.ticket})\n"
+                                        f"🚨 <b>Reason:</b> AI ตรวจพบแรงซื้อ กราฟอาจจะพุ่งสวน!\n"
+                                        f"🎯 <b>Action:</b> ร่น SL มาป้องกันตัวที่ <b>{new_sl}</b> (ระยะ 0.5 ATR)"
+                                    )
                                     send_telegram_message(msg)
-                                    print(f"🛡️ [Defense Mode] เลื่อน SL ฝั่ง SELL {symbol} บีบแคบสุดๆ ที่ {new_sl}")
-            
-            # 🚀 ท่าไม้ตาย: ยิงไม้เพิ่ม (Pyramiding Add-On)
-            # ทำงานเมื่อ: อยู่ในเวลาเทรด + เปิด Auto-Tune + มีไม้หลัก + โควต้ายังเหลือ + กราฟเป็น STRONG TREND
-            if is_trading_time and sym_config.get('auto_tune', False) and main_position and addon_count < (MAX_TOTAL_POSITIONS - 1) and is_strong_trend:
-                
-                # เช็คก่อนว่าไม้หลัก "ไร้ความเสี่ยง (Secured)" หรือยัง?
-                main_secured = False
-                if main_position.type == mt5.ORDER_TYPE_BUY and main_position.sl >= main_position.price_open:
-                    main_secured = True
-                elif main_position.type == mt5.ORDER_TYPE_SELL and main_position.sl <= main_position.price_open and main_position.sl != 0.0:
-                    main_secured = True
-                
-                # ถ้าไม้หลักปลอดภัยแล้ว ให้หาจังหวะ Add-On
-                if main_secured:
-                    final_addon_signal = None
-                    if main_position.type == mt5.ORDER_TYPE_BUY and buy_prob >= target_confidence_percent:
-                        final_addon_signal = "strong_buy"
-                    elif main_position.type == mt5.ORDER_TYPE_SELL and sell_prob >= target_confidence_percent:
-                        final_addon_signal = "strong_sell"
-                        
-                    if final_addon_signal:
-                        tick = mt5.symbol_info_tick(symbol)
-                        sym_info = mt5.symbol_info(symbol)
-                        
-                        if tick and sym_info:
-                            lot = main_position.volume # ใช้ Lot เท่าไม้หลัก
-                            sl_dist = atr_14 * atr_mult
-                            tp_dist = sl_dist * rr_ratio
-                            
-                            if main_position.type == mt5.ORDER_TYPE_BUY:
-                                sl_price = round(tick.ask - sl_dist, sym_info.digits)
-                                tp_price = round(tick.ask + tp_dist, sym_info.digits)
-                            else:
-                                sl_price = round(tick.bid + sl_dist, sym_info.digits)
-                                tp_price = round(tick.bid - tp_dist, sym_info.digits)
-                                
-                            result = send_order(symbol, final_addon_signal, lot, sl=sl_price, tp=tp_price, comment="AI Addon")
-                            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                                # ถ้าฟังก์ชัน save_new_trade ของลูกพี่มีพารามิเตอร์ comment ก็ใส่ได้เลย แต่ถ้าไม่มี เอาไว้เท่านี้ก่อนได้ครับ
-                                save_new_trade(result.order, symbol, final_addon_signal, result.price)
-                                msg = (
-                                    f"🔥 <b>AI ADD-ON EXECUTED (ยิงไม้เร่งกำไร)</b> 🔥\n\n"
-                                    f"🎯 <b>Signal:</b> {final_addon_signal.upper()}\n"
-                                    f"💱 <b>Symbol:</b> {symbol}\n"
-                                    f"💰 <b>Add Entry:</b> {result.price}\n"
-                                    f"📦 <b>Lot:</b> {lot}\n"
-                                    f"🚨 <b>Reason:</b> เทรนด์แกร่ง + ไม้หลักปลอดภัย สบจังหวะอัดไม้เพิ่ม!"
-                                )
-                                send_telegram_message(msg)
-                                print(f"🔥 [Add-On] ยิงไม้เพิ่มเหรียญ {symbol} (Ticket: {result.order}) ล็อคเป้าเร่งกำไร!")
-
-            # 🛑 หยุดลูปการเข้าเทรดไม้หลัก ถ้ามีของอยู่ในมือแล้ว (จะไม้หลักหรือไม้ Add-on ก็ตาม)
+                                    print(f"🛡️ [Defense Mode] เลื่อน SL ฝั่ง SELL เหรียญ {symbol} บีบแคบสุดๆ ที่ {new_sl}")
             continue
 
         # ==========================================
-        # 🚀 โซนยิงออเดอร์ใหม่ (ไม้หลัก - เมื่อมือว่างสนิท)
+        # 🚀 โซนยิงออเดอร์ใหม่ (เมื่อมือว่าง)
         # ==========================================
         if not is_trading_time:
             continue
@@ -465,12 +413,11 @@ def run_bot_cycle(active_symbols: list):
             sl_price = round(sl_price, symbol_info.digits)
             tp_price = round(tp_price, symbol_info.digits)
             
-            # 🌟 ประทับตรา comment="AI Main" ให้ไม้หลัก เพื่อให้ระบบ Add-on จำแนกได้
-            result = send_order(symbol, final_signal, lot, sl=sl_price, tp=tp_price, comment="AI Main")
+            result = send_order(symbol, final_signal, lot, sl=sl_price, tp=tp_price)
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 save_new_trade(result.order, symbol, final_signal, result.price)
                 msg = (
-                    f"🚨 <b>QUANTUM AI EXECUTED (ไม้หลัก)</b> 🚨\n\n"
+                    f"🚨 <b>QUANTUM AI EXECUTED</b> 🚨\n\n"
                     f"🎯 <b>Signal:</b> {final_signal.upper()}\n"
                     f"💱 <b>Symbol:</b> {symbol}\n"
                     f"💰 <b>Entry:</b> {result.price}\n"

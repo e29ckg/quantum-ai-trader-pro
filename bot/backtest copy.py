@@ -126,14 +126,16 @@ def run_backtest_pro(symbol, bars=5000):
 
     engine = BacktestEngine()
     
-    # 🌟 V4.1 เปลี่ยนจากตัวแปรเดี่ยว เป็น List เก็บตะกร้าออเดอร์
-    open_positions = []
+    in_trade = False
+    trade_type, entry_price, sl, tp, sl_dist_init, entry_time = None, 0, 0, 0, 0, None
+    be_applied = False
     
     features = ['open', 'high', 'low', 'close', 'tick_volume', 'EMA_20', 'EMA_50', 'RSI_14']
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(df[features].values)
 
     print(f"\n⚡ เริ่มเตรียมข้อมูล Batch สำหรับ {symbol}...")
+    
     X_all = []
     for i in range(60, len(df)):
         X_all.append(scaled_data[i-60:i])
@@ -142,12 +144,13 @@ def run_backtest_pro(symbol, bars=5000):
     print("🧠 AI กำลังคำนวณความน่าจะเป็นทั้งหมด (Batch Prediction)...")
     all_predictions = model.predict(X_all, batch_size=128, verbose=0)
 
-    print(f"🤖 เริ่มจำลองการเทรด V4.1 ADD-ON (Auto-Tune: {'🟢 เปิด' if is_auto_tune else '🔴 ปิด'})")
+    print(f"🤖 เริ่มจำลองการเทรด (Auto-Tune: {'🟢 เปิด' if is_auto_tune else '🔴 ปิด'})")
     total_steps = len(df) - 60
 
     for i in range(60, len(df)):
         current_bar = df.iloc[i]
         pred_idx = i - 60
+        
         pred = all_predictions[pred_idx][0]
         
         current_step = pred_idx + 1
@@ -158,7 +161,7 @@ def run_backtest_pro(symbol, bars=5000):
 
         atr_14 = current_bar['ATR']
 
-        # โหมด Auto-Tune
+        # 🌟🌟🌟 แก้ไข: ดึงค่าจาก sym_config (ฐานข้อมูล) แทน os.getenv 🌟🌟🌟
         if is_auto_tune:
             atr_50 = current_bar['ATR_50']
             ema_20 = current_bar['EMA_20']
@@ -186,45 +189,40 @@ def run_backtest_pro(symbol, bars=5000):
             current_rr = manual_rr
             current_atr_sl = manual_atr_sl
             current_be_mult = manual_be
-            is_strong_trend = False # ถ้าปิด Auto-tune จะไม่มีการเบิ้ลไม้ Add-on
+        # 🌟🌟🌟 จบการแก้ไข 🌟🌟🌟
 
-
-        # 🛡️ 1. จัดการออเดอร์ที่ค้างอยู่ (Manage Positions)
-        remaining_positions = []
-        for pos in open_positions:
-            closed = False
-            # Check TP
-            if pos['type'] == "buy" and current_bar['high'] >= pos['tp']:
-                engine.execute_trade(pos['time'], pos['entry'], "buy", pos['tp'], pos['sl_dist_init'], "TP")
-                closed = True
-            elif pos['type'] == "sell" and current_bar['low'] <= pos['tp']:
-                engine.execute_trade(pos['time'], pos['entry'], "sell", pos['tp'], pos['sl_dist_init'], "TP")
-                closed = True
-            
-            # Check SL
-            elif pos['type'] == "buy" and current_bar['low'] <= pos['sl']:
-                reason = "BE" if pos['be_applied'] else "SL"
-                engine.execute_trade(pos['time'], pos['entry'], "buy", pos['sl'], pos['sl_dist_init'], reason)
-                closed = True
-            elif pos['type'] == "sell" and current_bar['high'] >= pos['sl']:
-                reason = "BE" if pos['be_applied'] else "SL"
-                engine.execute_trade(pos['time'], pos['entry'], "sell", pos['sl'], pos['sl_dist_init'], reason)
-                closed = True
-
-            # Check Break-Even (ถ้ายังไม่โดนปิด)
-            if not closed:
-                if pos['type'] == "buy" and not pos['be_applied'] and current_bar['close'] > pos['entry'] + (atr_14 * current_be_mult):
-                    pos['sl'] = pos['entry']
-                    pos['be_applied'] = True
-                elif pos['type'] == "sell" and not pos['be_applied'] and current_bar['close'] < pos['entry'] - (atr_14 * current_be_mult):
-                    pos['sl'] = pos['entry']
-                    pos['be_applied'] = True
+        # 🛡️ จัดการออเดอร์
+        if in_trade:
+            if trade_type == "buy":
+                if current_bar['high'] >= tp:
+                    engine.execute_trade(entry_time, entry_price, "buy", tp, sl_dist_init, "TP")
+                    in_trade = False; continue
                 
-                remaining_positions.append(pos)
+                if not be_applied and current_bar['close'] > entry_price + (atr_14 * current_be_mult):
+                    sl = entry_price
+                    be_applied = True
                 
-        open_positions = remaining_positions
+                if current_bar['low'] <= sl:
+                    reason = "BE" if be_applied else "SL"
+                    engine.execute_trade(entry_time, entry_price, "buy", sl, sl_dist_init, reason)
+                    in_trade = False; continue
 
-        # 🎯 ดึงสัญญาณ SMC
+            else:
+                if current_bar['low'] <= tp:
+                    engine.execute_trade(entry_time, entry_price, "sell", tp, sl_dist_init, "TP")
+                    in_trade = False; continue
+                
+                if not be_applied and current_bar['close'] < entry_price - (atr_14 * current_be_mult):
+                    sl = entry_price
+                    be_applied = True
+                
+                if current_bar['high'] >= sl:
+                    reason = "BE" if be_applied else "SL"
+                    engine.execute_trade(entry_time, entry_price, "sell", sl, sl_dist_init, reason)
+                    in_trade = False; continue
+            continue
+
+        # 🎯 เข้าเทรด
         sub_df = df.iloc[i-60:i].copy()
         trend = detect_trend(sub_df)
         raw_sig = choose_strategy(trend)
@@ -232,42 +230,19 @@ def run_backtest_pro(symbol, bars=5000):
 
         if smc_sig == "hold": continue
         
-        # 🚀 2. โซนยิง Add-On (ทำกำไรเมื่อมีเทรนด์)
-        if len(open_positions) == 1 and is_auto_tune and is_strong_trend:
-            main_pos = open_positions[0]
-            if main_pos['be_applied']: # 🛡️ ไม้หลักบังทุนแล้ว ปลอดภัย!
-                sl_dist = atr_14 * current_atr_sl
-                
-                if smc_sig in ["buy", "strong_buy"] and pred >= current_conf and main_pos['type'] == "buy":
-                    open_positions.append({
-                        "type": "buy", "entry": current_bar['close'], "time": current_bar['time'],
-                        "sl_dist_init": sl_dist, "sl": current_bar['close'] - sl_dist,
-                        "tp": current_bar['close'] + (sl_dist * current_rr), "be_applied": False
-                    })
-                elif smc_sig in ["sell", "strong_sell"] and (1-pred) >= current_conf and main_pos['type'] == "sell":
-                    open_positions.append({
-                        "type": "sell", "entry": current_bar['close'], "time": current_bar['time'],
-                        "sl_dist_init": sl_dist, "sl": current_bar['close'] + sl_dist,
-                        "tp": current_bar['close'] - (sl_dist * current_rr), "be_applied": False
-                    })
-            continue # ถ้าเช็ค Add-On แล้ว ข้ามลอจิกไม้หลักไปเลย
-
-        # 🚀 3. โซนยิงไม้หลัก (เมื่อมือว่าง)
-        if len(open_positions) == 0:
-            sl_dist = atr_14 * current_atr_sl
+        if smc_sig in ["buy", "strong_buy"] and pred >= current_conf:
+            in_trade, trade_type, be_applied = True, "buy", False
+            entry_price, entry_time = current_bar['close'], current_bar['time']
+            sl_dist_init = atr_14 * current_atr_sl
+            sl = entry_price - sl_dist_init
+            tp = entry_price + (sl_dist_init * current_rr)
             
-            if smc_sig in ["buy", "strong_buy"] and pred >= current_conf:
-                open_positions.append({
-                    "type": "buy", "entry": current_bar['close'], "time": current_bar['time'],
-                    "sl_dist_init": sl_dist, "sl": current_bar['close'] - sl_dist,
-                    "tp": current_bar['close'] + (sl_dist * current_rr), "be_applied": False
-                })
-            elif smc_sig in ["sell", "strong_sell"] and (1-pred) >= current_conf:
-                open_positions.append({
-                    "type": "sell", "entry": current_bar['close'], "time": current_bar['time'],
-                    "sl_dist_init": sl_dist, "sl": current_bar['close'] + sl_dist,
-                    "tp": current_bar['close'] - (sl_dist * current_rr), "be_applied": False
-                })
+        elif smc_sig in ["sell", "strong_sell"] and (1-pred) >= current_conf:
+            in_trade, trade_type, be_applied = True, "sell", False
+            entry_price, entry_time = current_bar['close'], current_bar['time']
+            sl_dist_init = atr_14 * current_atr_sl
+            sl = entry_price + sl_dist_init
+            tp = entry_price - (sl_dist_init * current_rr)
 
     print("\n✅ ประมวลผลเสร็จสิ้น! กำลังส่งรายงานกลับไปที่หน้าเว็บ...")
     config_used = {

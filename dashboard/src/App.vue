@@ -284,7 +284,7 @@
                   <span class="confidence-title">🛡️ SL ATR Distance</span>
                   <span class="confidence-value text-green">x{{ Number(tempSettings.atr_sl).toFixed(1) }}</span>
               </div>
-              <input type="range" min="1.0" max="5.0" step="0.1" v-model="tempSettings.atr_sl" class="confidence-slider" style="accent-color: #f85149;" />
+              <input type="range" min="0.1" max="5.0" step="0.1" v-model="tempSettings.atr_sl" class="confidence-slider" style="accent-color: #f85149;" />
           </div>
 
           <div v-show="!tempSettings.auto_tune" class="setting-group">

@@ -182,12 +182,7 @@ def check_and_notify_closed_trades():
     except Exception as e:
         print(f"⚠️ [Check Closed Trades Error]: {e}")
 
-# ==========================================
-# 🧠 วัฏจักรการทำงานหลัก (Main Loop)
-# ==========================================
-# ==========================================
-# 🧠 วัฏจักรการทำงานหลัก (Main Loop)
-# ==========================================
+
 # ==========================================
 # 🧠 วัฏจักรการทำงานหลัก (Main Loop) - V4.1 (Defense + Add-On)
 # ==========================================
@@ -329,6 +324,25 @@ def run_bot_cycle(active_symbols: list):
                         send_telegram_message(msg)
                         print(f"⚡ [Quick Scalp] ปิดทำกำไรสั้น {symbol} รับเงิน +${pos.profit:.2f} ทันที!")
                     continue # ปิดออเดอร์เสร็จแล้ว ข้ามไปดูไม้อื่นต่อเลยไม่ต้องทำคำสั่งด้านล่าง
+
+                # 🛡️ ท่าแก้เกม: ล็อคกำไรทันทีเมื่อถึงเป้าครึ่งทาง (Trailing Profit)
+                LOCK_PROFIT_TRIGGER = 3.0  # พอกำไรถึง $3
+                if pos.profit >= LOCK_PROFIT_TRIGGER and not pos.be_applied:
+                    tick = mt5.symbol_info_tick(symbol)
+                    sym_info = mt5.symbol_info(symbol)
+                    if tick and sym_info:
+                        # new_sl = pos.price_open # ขยับ SL มาบังทุนเป๊ะๆ
+                        
+                        # หรือถ้าอยากบังทุน + เอากำไรนิดนึงค่าธรรมเนียม
+                        new_sl = pos.price_open + 0.5 # (สำหรับ BUY)
+                        
+                        request = {
+                            "action": mt5.TRADE_ACTION_SLTP, "symbol": symbol,
+                            "sl": new_sl, "tp": pos.tp, "position": pos.ticket
+                        }
+                        if mt5.order_send(request).retcode == mt5.TRADE_RETCODE_DONE:
+                            pos.be_applied = True
+                            print(f"🔒 [Lock Profit] กำไรถึง ${LOCK_PROFIT_TRIGGER} เลื่อน SL บังทุนให้ {symbol}")
                                 
                 # จำแนกประเภทไม้
                 if pos.comment == "AI Addon":
@@ -480,6 +494,18 @@ def run_bot_cycle(active_symbols: list):
                 
             sl_price = round(sl_price, symbol_info.digits)
             tp_price = round(tp_price, symbol_info.digits)
+
+            # 🛡️ 🌟 ท่าแก้เกม: ระบบเบรกฉุกเฉิน (Max Dollar Risk Cap) 🌟 🛡️
+            MAX_ALLOWED_LOSS_USD = 10.0  # 💵 ลูกพี่ตั้งค่าเงินที่ยอมเสียสูงสุดตรงนี้เลย (เช่น ห้ามเสียเกิน $10 ต่อไม้)
+            
+            # คำนวณว่าจะเสียเงินกี่เหรียญถ้าโดนลาก (คร่าวๆ สำหรับทอง 1 จุด = $1 ต่อ 0.01 Lot)
+            # หมายเหตุ: XAUUSDm ของ Exness Contract Size คือ 100
+            estimated_loss_usd = abs(sl_price - tick.ask if "buy" in final_signal else tick.bid - sl_price) * lot * 100
+            
+            if estimated_loss_usd > MAX_ALLOWED_LOSS_USD:
+                print(f"🚫 [Risk Control] กราฟผันผวนหนัก! ระยะ SL กว้างเกินไป เสี่ยงติดลบ ${estimated_loss_usd:.2f} (เกินลิมิต ${MAX_ALLOWED_LOSS_USD}) -> ยกเลิกการยิงออเดอร์หนีตาย!")
+                continue # ข้ามการเทรดไม้นี้ไปเลย ไม่ต้องส่งคำสั่งไป MT5!
+            # 🛡️ 🌟 สิ้นสุดระบบเบรกฉุกเฉิน 🌟 🛡️
             
             # 🌟 ประทับตรา comment="AI Main" ให้ไม้หลัก เพื่อให้ระบบ Add-on จำแนกได้
             result = send_order(symbol, final_signal, lot, sl=sl_price, tp=tp_price, comment="AI Main")

@@ -496,11 +496,16 @@ def run_bot_cycle(active_symbols: list):
             tp_price = round(tp_price, symbol_info.digits)
 
             # 🛡️ 🌟 ท่าแก้เกม: ระบบเบรกฉุกเฉิน (Max Dollar Risk Cap) 🌟 🛡️
-            MAX_ALLOWED_LOSS_USD = 10.0  # 💵 ลูกพี่ตั้งค่าเงินที่ยอมเสียสูงสุดตรงนี้เลย (เช่น ห้ามเสียเกิน $10 ต่อไม้)
+            MAX_ALLOWED_LOSS_USD = 25.0  # 💵 ลิมิตยอมขาดทุนสูงสุดต่อไม้
             
-            # คำนวณว่าจะเสียเงินกี่เหรียญถ้าโดนลาก (คร่าวๆ สำหรับทอง 1 จุด = $1 ต่อ 0.01 Lot)
-            # หมายเหตุ: XAUUSDm ของ Exness Contract Size คือ 100
-            estimated_loss_usd = abs(sl_price - tick.ask if "buy" in final_signal else tick.bid - sl_price) * lot * 100
+            # ดึง Contract Size ของเหรียญนั้นๆ จาก Exness โดยตรง (XAU=100, BTC=1, ETH=...)
+            contract_size = symbol_info.trade_contract_size
+            
+            # คำนวณความเสี่ยงที่แม่นยำ 100%
+            if final_signal in ["buy", "strong_buy"]:
+                estimated_loss_usd = abs(tick.ask - sl_price) * lot * contract_size
+            else:
+                estimated_loss_usd = abs(sl_price - tick.bid) * lot * contract_size
             
             if estimated_loss_usd > MAX_ALLOWED_LOSS_USD:
                 print(f"🚫 [Risk Control] กราฟผันผวนหนัก! ระยะ SL กว้างเกินไป เสี่ยงติดลบ ${estimated_loss_usd:.2f} (เกินลิมิต ${MAX_ALLOWED_LOSS_USD}) -> ยกเลิกการยิงออเดอร์หนีตาย!")

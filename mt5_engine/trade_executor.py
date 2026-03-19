@@ -1,6 +1,6 @@
 import MetaTrader5 as mt5
 
-def send_order(symbol: str, signal: str, lot: float, sl: float = 0.0, tp: float = 0.0):
+def send_order(symbol: str, signal: str, lot: float, sl: float = 0.0, tp: float = 0.0, comment="Quantum AI"):
     """
     ส่งคำสั่งซื้อขายเข้าสู่ตลาดจริง (Market Execution)
     

@@ -313,7 +313,23 @@ def run_bot_cycle(active_symbols: list):
             for pos in positions:
                 sync_manual_order_to_db(pos)
                 apply_break_even(pos, df, break_even_mult)
+
+                # ⚡ ท่าไม้ตายใหม่: เก็บสั้นรับเงินสด (Quick Scalp Cash Out) ⚡
+                QUICK_PROFIT_TARGET = 5.0  # 🎯 ลูกพี่เปลี่ยนตัวเลขตรงนี้ได้เลย (เช่น กำไร $5 ปิดทันที)
                 
+                if pos.profit >= QUICK_PROFIT_TARGET:
+                    # ถ้าฟังก์ชันปิดออเดอร์ในระบบลูกพี่ใช้ชื่อ close_mt5_position ก็ใช้ตามนี้ได้เลย
+                    if close_mt5_position(pos, comment="AI Quick Scalp"):
+                        msg = (
+                            f"⚡ <b>AI QUICK SCALP (สับไกเก็บสั้น)</b> ⚡\n\n"
+                            f"💱 <b>Symbol:</b> {symbol} (Ticket: {pos.ticket})\n"
+                            f"💰 <b>Net Profit:</b> 🟢 <b>+${pos.profit:.2f}</b>\n"
+                            f"🚨 <b>Reason:</b> ถึงเป้ากำไรเงินสด สับไกปิดออเดอร์หนีเข้ากระเป๋า!"
+                        )
+                        send_telegram_message(msg)
+                        print(f"⚡ [Quick Scalp] ปิดทำกำไรสั้น {symbol} รับเงิน +${pos.profit:.2f} ทันที!")
+                    continue # ปิดออเดอร์เสร็จแล้ว ข้ามไปดูไม้อื่นต่อเลยไม่ต้องทำคำสั่งด้านล่าง
+                                
                 # จำแนกประเภทไม้
                 if pos.comment == "AI Addon":
                     addon_count += 1

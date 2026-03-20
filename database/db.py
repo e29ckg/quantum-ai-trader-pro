@@ -67,6 +67,10 @@ class SymbolConfig(Base):
     at_vol_low_atr_sl = Column(Float, default=2.0)
     at_vol_low_be = Column(Float, default=1.5)
     market_regime = Column(String, default="WAITING") # เก็บสถานะตลาด
+    
+    # 🌟🌟🌟 [เพิ่ม 2 บรรทัดนี้สำหรับ V5] 🌟🌟🌟
+    trade_start_time = Column(String, default="00:00")
+    trade_end_time = Column(String, default="23:59")
 
 # สร้างตารางทั้งหมด (ถ้ายังไม่มี)
 Base.metadata.create_all(bind=engine)

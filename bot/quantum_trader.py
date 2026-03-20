@@ -1,12 +1,20 @@
 import os
 import time
-import MetaTrader5 as mt5
-import pandas as pd
 import sqlite3
-from datetime import datetime
+import requests
+import joblib
+import pandas as pd
+import numpy as np
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import MetaTrader5 as mt5
+import json
+import os
 
-# นำเข้าเครื่องมือทั้งหมดที่เราสร้างไว้ (🌟 เพิ่ม update_symbol_config เข้ามาด้วย)
+# ==========================================
+# 📦 โซนนำเข้าโมดูลของระบบ (Local Imports)
+# ==========================================
 from database.db import save_new_trade, get_bot_settings_db, get_symbol_config, update_symbol_config
 from mt5_engine.connect import connect_mt5, get_account_info
 from mt5_engine.data_feed import get_candles
@@ -23,7 +31,7 @@ from utils.telegram_notifier import send_telegram_message
 load_dotenv()
 
 # ==========================================
-# ⚙️ ตั้งค่าพื้นฐานเริ่มต้น
+# ⚙️ โซนตั้งค่าตัวแปร Global & โหลดสมองกล AI
 # ==========================================
 tf_map = {
     "M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5, "M15": mt5.TIMEFRAME_M15,
@@ -34,37 +42,153 @@ TIMEFRAME = tf_map.get(env_timeframe, mt5.TIMEFRAME_M15)
 
 live_signals = {}
 last_summary_date = None
+news_cache = {"date": None, "events": []}
+
+try:
+    quantum_ai = joblib.load('models/xgboost_quantum_v5.pkl')
+    print("🧠 [System] โหลดสมองกล XGBoost (V4) สำเร็จ พร้อมรบ!")
+except Exception as e:
+    quantum_ai = None
+    print(f"⚠️ [System] ไม่พบสมองกล XGBoost ({e}) จะใช้ระบบพื้นฐานแทน")
 
 # ==========================================
-# 🥷 3 ท่าไม้ตาย: ระบบปิดออเดอร์ (Golden Exit)
+# 📰 โซนตัวช่วย: ตัวกรองข่าวสาร (News Filter)
+# ==========================================
+def is_safe_from_news(buffer_mins=30):
+    global news_cache
+    now = datetime.now()
+    
+    if news_cache["date"] != now.date():
+        try:
+            url = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            res = requests.get(url, headers=headers, timeout=5)
+            root = ET.fromstring(res.content)
+            
+            events = []
+            for item in root.findall('event'):
+                impact = item.find('impact').text
+                country = item.find('country').text
+                if impact == 'High' and country == 'USD':
+                    date_str = item.find('date').text
+                    time_str = item.find('time').text
+                    if time_str and time_str.lower() != "all day":
+                        dt_str = f"{date_str} {time_str}"
+                        try:
+                            est_dt = datetime.strptime(dt_str, "%m-%d-%Y %I:%M%p")
+                            bkk_dt = est_dt + timedelta(hours=11)
+                            events.append(bkk_dt)
+                        except:
+                            pass
+            news_cache["date"] = now.date()
+            news_cache["events"] = events
+            print(f"\n📰 [News Filter] โหลดปฏิทินข่าวสำเร็จ! วันนี้มีข่าวกล่องแดง USD จำนวน {len(events)} รอบ 🚨")
+        except Exception as e:
+            print("\n📰 [News Filter] โหลดข่าวไม่สำเร็จ บอทจะเทรดตามปกติต่อไป...")
+            news_cache["date"] = now.date()
+            news_cache["events"] = []
+
+    for news_time in news_cache["events"]:
+        danger_start = news_time - timedelta(minutes=buffer_mins)
+        danger_end = news_time + timedelta(minutes=buffer_mins)
+        if danger_start <= now <= danger_end:
+            return False, news_time 
+            
+    return True, None 
+
+# ==========================================
+# 🧠 โซนตัวช่วย: AI Predictor (XGBoost Engine)
+# ==========================================
+def get_xgboost_prediction(df):
+    # 🌟 เช็คว่าโมเดลพร้อมไหม และกราฟมีอย่างน้อย 200 แท่งไหม (เพราะเราใช้ EMA 200)
+    if quantum_ai is None or len(df) < 200:
+        return 50.0, 50.0 
+
+    try:
+        df_ai = df.copy()
+        
+        # --- 1. คำนวณ Features พื้นฐาน ---
+        high_low = df_ai['high'] - df_ai['low']
+        high_close = (df_ai['high'] - df_ai['close'].shift()).abs()
+        low_close = (df_ai['low'] - df_ai['close'].shift()).abs()
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        
+        df_ai['ATR_14'] = tr.rolling(14).mean()
+        df_ai['ATR_50'] = tr.rolling(50).mean()
+        df_ai['Volatility_Ratio'] = df_ai['ATR_14'] / df_ai['ATR_50']
+        
+        df_ai['EMA_20'] = df_ai['close'].ewm(span=20, adjust=False).mean()
+        df_ai['EMA_50'] = df_ai['close'].ewm(span=50, adjust=False).mean()
+        df_ai['Dist_EMA20'] = (df_ai['close'] - df_ai['EMA_20']) / df_ai['EMA_20'] * 100
+        df_ai['Dist_EMA50'] = (df_ai['close'] - df_ai['EMA_50']) / df_ai['EMA_50'] * 100
+        df_ai['Trend_Slope'] = (df_ai['EMA_20'] - df_ai['EMA_20'].shift(5)) / df_ai['EMA_20'].shift(5) * 100
+        
+        delta = df_ai['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        df_ai['RSI_14'] = 100 - (100 / (1 + rs))
+
+        # --- 2. คำนวณ Features ใหม่สำหรับ V5 ---
+        df_ai['EMA_200'] = df_ai['close'].ewm(span=200, adjust=False).mean()
+        df_ai['Macro_Trend'] = np.where(df_ai['close'] > df_ai['EMA_200'], 1, -1)
+        
+        # 🌟🌟🌟 ดึงเวลาแบบเซียน (รองรับทั้ง Live และ Backtest ป้องกันบั๊ก RangeIndex) 🌟🌟🌟
+        if 'time' in df_ai.columns:
+            # ถ้ามีคอลัมน์ 'time' ให้แปลงและดึงค่า (เคสบอท MT5 จริง)
+            if pd.api.types.is_numeric_dtype(df_ai['time']):
+                time_col = pd.to_datetime(df_ai['time'], unit='s')
+            else:
+                time_col = pd.to_datetime(df_ai['time'])
+            df_ai['Hour'] = time_col.dt.hour
+            df_ai['DayOfWeek'] = time_col.dt.dayofweek
+        else:
+            # ถ้าไม่มีคอลัมน์ ให้ดึงจาก Index (เคส Backtest)
+            df_ai['Hour'] = df_ai.index.hour
+            df_ai['DayOfWeek'] = df_ai.index.dayofweek
+
+        # --- 3. จัดกลุ่ม 9 ตัวแปรให้ตรงกับตอนเทรนเป๊ะๆ ---
+        features = [
+            'tick_volume', 'Volatility_Ratio', 'Dist_EMA20', 
+            'Dist_EMA50', 'Trend_Slope', 'Macro_Trend', 'RSI_14',
+            'Hour', 'DayOfWeek'
+        ]
+        
+        # ดึงข้อมูลของแท่งล่าสุดมาทำนายผล
+        X = df_ai[features].iloc[-1].values.reshape(1, -1)
+        
+        # 🌟 ทายผลด้วยโมเดล V5
+        probs = quantum_ai.predict_proba(X)[0] 
+        
+        sell_prob = float(probs[0]) # ส่งค่าทศนิยม 0.0 - 1.0 ให้ระบบไปคูณเอง
+        buy_prob = float(probs[1])  # ส่งค่าทศนิยม 0.0 - 1.0 ให้ระบบไปคูณเอง
+        
+        return buy_prob, sell_prob
+
+    except Exception as e:
+        print(f"❌ [AI Error] ประมวลผลพลาด: {e}")
+        return 50.0, 50.0
+
+# ==========================================
+# 🥷 โซนตัวช่วย: จัดการออเดอร์ (Position Management)
 # ==========================================
 def close_mt5_position(position, comment="AI Reversal"):
-    """ปิดออเดอร์แบบฉุกเฉิน ทิ้งของทันที (Market Close)"""
     tick = mt5.symbol_info_tick(position.symbol)
     if not tick: return False
     
-    # สลับคำสั่งเพื่อปิด (BUY ให้ SELL ทิ้ง, SELL ให้ BUY คืน)
     action_type = mt5.ORDER_TYPE_SELL if position.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
     price = tick.bid if action_type == mt5.ORDER_TYPE_SELL else tick.ask
     
     request = {
-        "action": mt5.TRADE_ACTION_DEAL,
-        "position": position.ticket,
-        "symbol": position.symbol,
-        "volume": position.volume,
-        "type": action_type,
-        "price": price,
-        "deviation": 20,
-        "magic": 100,
-        "comment": comment,
-        "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "action": mt5.TRADE_ACTION_DEAL, "position": position.ticket, "symbol": position.symbol,
+        "volume": position.volume, "type": action_type, "price": price,
+        "deviation": 20, "magic": 100, "comment": comment,
+        "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC,
     }
     result = mt5.order_send(request)
     return result is not None and result.retcode == mt5.TRADE_RETCODE_DONE
 
 def apply_break_even(position, df, break_even_mult=1.5):
-    """เลื่อนเส้น Stop Loss มาบังหน้าทุน (ทุนปลอดภัย 100%) ตามค่าที่ตั้งไว้"""
     high_low = df['high'] - df['low']
     high_close = (df['high'] - df['close'].shift()).abs()
     low_close = (df['low'] - df['close'].shift()).abs()
@@ -74,7 +198,6 @@ def apply_break_even(position, df, break_even_mult=1.5):
     current_close = df['close'].iloc[-1]
     entry = position.price_open
     sl = position.sl
-    
     profit_distance = break_even_mult * atr
     request = None
     
@@ -88,10 +211,9 @@ def apply_break_even(position, df, break_even_mult=1.5):
     if request:
         res = mt5.order_send(request)
         if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"🛡️ [Break-Even] ตลาดเป็นใจ! เลื่อน SL บังหน้าทุนให้ {position.symbol} ทุนปลอดภัย 100% แล้ว!")
+            print(f"🛡️ [Break-Even] เลื่อน SL บังหน้าทุน {position.symbol} เรียบร้อย!")
 
 def sync_manual_order_to_db(pos):
-    """ฟังก์ชันจดบันทึกออเดอร์เปิดมือ (ใช้วันเวลาที่บันทึกลงระบบ)"""
     try:
         conn = sqlite3.connect("quantum_bot.db")
         cursor = conn.cursor()
@@ -104,14 +226,11 @@ def sync_manual_order_to_db(pos):
                 VALUES (?, ?, ?, ?, 'OPEN', ?)
             ''', (pos.ticket, pos.symbol, trade_type, pos.price_open, record_time))
             conn.commit()
-            print(f"📥 [DB Sync] ตรวจพบออเดอร์เปิดมือ (Ticket: {pos.ticket}) แสตมป์เวลาบันทึก: {record_time} เรียบร้อย!")
+            print(f"📥 [DB Sync] ซิงค์ออเดอร์เปิดมือ (Ticket: {pos.ticket}) สำเร็จ!")
         conn.close()
     except Exception as e:
         print(f"⚠️ [DB Sync Error]: {e}")
 
-# ==========================================
-# 📊 ระบบส่งรายงานสรุปยอดประจำวัน
-# ==========================================
 def send_daily_summary(active_symbols: list):
     global last_summary_date
     now = datetime.now()
@@ -119,6 +238,7 @@ def send_daily_summary(active_symbols: list):
         start_of_day = datetime(now.year, now.month, now.day)
         end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
         deals = mt5.history_deals_get(start_of_day, end_of_day)
+        
         total_profit = 0.0
         total_trades = 0
         win_trades = 0
@@ -132,12 +252,9 @@ def send_daily_summary(active_symbols: list):
                         
         win_rate = (win_trades / total_trades * 100) if total_trades > 0 else 0
         emoji = "🟢" if total_profit >= 0 else "🔴"
-        msg = (
-            f"📊 <b>สรุปผลประกอบการ (Daily Report)</b>\n"
-            f"📈 <b>ออเดอร์:</b> {total_trades} ไม้\n"
-            f"🏆 <b>Win Rate:</b> {win_rate:.1f}%\n"
-            f"💰 <b>Net Profit:</b> {emoji} <b>${total_profit:.2f}</b>"
-        )
+        msg = (f"📊 <b>สรุปผลประกอบการ (Daily Report)</b>\n"
+               f"📈 <b>ออเดอร์:</b> {total_trades} ไม้\n🏆 <b>Win Rate:</b> {win_rate:.1f}%\n"
+               f"💰 <b>Net Profit:</b> {emoji} <b>${total_profit:.2f}</b>")
         send_telegram_message(msg)
         last_summary_date = now.date()
         
@@ -146,7 +263,6 @@ def send_daily_summary(active_symbols: list):
             if df_today is not None: update_brain_daily(df_today, symbol)
 
 def check_and_notify_closed_trades():
-    """ฟังก์ชันดักจับออเดอร์ที่ชน TP, ชน SL หรือปิดมือ แล้วส่งแจ้งเตือน"""
     try:
         conn = sqlite3.connect("quantum_bot.db")
         cursor = conn.cursor()
@@ -168,136 +284,209 @@ def check_and_notify_closed_trades():
                     profit_sign = "+" if net_profit >= 0 else ""
                     close_type = "TAKE PROFIT (TP) 🏆" if net_profit > 0 else "STOP LOSS (SL) 🛡️"
                     
-                    msg = (
-                        f"🏁 <b>TRADE CLOSED ({close_type})</b> 🏁\n\n"
-                        f"💱 <b>Symbol:</b> {symbol} (Ticket: #{ticket_id})\n"
-                        f"📦 <b>Type:</b> {trade_type.upper()}\n"
-                        f"📥 <b>Entry Price:</b> {entry_price:.5f}\n"
-                        f"💰 <b>Net Profit:</b> {emoji} <b>{profit_sign}${net_profit:.2f}</b>\n"
-                        f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
-                    )
+                    msg = (f"🏁 <b>TRADE CLOSED ({close_type})</b> 🏁\n\n"
+                           f"💱 <b>Symbol:</b> {symbol} (Ticket: #{ticket_id})\n"
+                           f"💰 <b>Net Profit:</b> {emoji} <b>{profit_sign}${net_profit:.2f}</b>")
                     send_telegram_message(msg)
-                    print(f"🏁 [Trade Closed] {symbol} (Ticket: #{ticket_id}) ปิดออเดอร์แล้ว | PnL: {profit_sign}${net_profit:.2f}")
+                    print(f"🏁 [Trade Closed] {symbol} | PnL: {profit_sign}${net_profit:.2f}")
         conn.close()
     except Exception as e:
         print(f"⚠️ [Check Closed Trades Error]: {e}")
 
-
+## ==========================================
+# 🧠 วัฏจักรการทำงานหลัก (Main Loop) - V4.3 (Always Awake)
 # ==========================================
-# 🧠 วัฏจักรการทำงานหลัก (Main Loop) - V4.1 (Defense + Add-On)
-# ==========================================
-def run_bot_cycle(active_symbols: list):
-    send_daily_summary(active_symbols)
-    check_and_notify_closed_trades()
+def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
+    # 🌟 ถ้าลูกพี่กด START AI บอทถึงจะทำงาน 2 บรรทัดนี้ (เช่น การส่ง Line/Telegram สรุปยอด)
+    if is_trading_enabled:
+        send_daily_summary(active_symbols)
+        check_and_notify_closed_trades()
 
-    global_settings = get_bot_settings_db()
-    now_time = datetime.now().time()
-    start_time = datetime.strptime(global_settings.trade_start_time, "%H:%M").time()
-    end_time = datetime.strptime(global_settings.trade_end_time, "%H:%M").time()
-    
-    is_trading_time = False
-    if start_time <= end_time:
-        is_trading_time = start_time <= now_time <= end_time
+    # ==========================================
+    # 🌟🌟🌟 ควบคุมโหมดเทพ (ดึงจากหน้า Dashboard) 🌟🌟🌟
+    # ==========================================
+    config_path = "master_config.json"
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            master_cfg = json.load(f)
     else:
-        is_trading_time = now_time >= start_time or now_time <= end_time
-        
-    # 🌟🌟🌟 ตั้งค่าโควต้า Add-On 🌟🌟🌟
-    MAX_TOTAL_POSITIONS = 2 # จำนวนออเดอร์สูงสุดต่อ 1 เหรียญ (ไม้หลัก 1 + ไม้ Add-on 1)
-    
-    for symbol in active_symbols:
-        sym_config = get_symbol_config(symbol)
+        # ถ้าไฟล์ยังไม่ถูกสร้าง ให้ใช้ค่า Default ไปก่อน
+        master_cfg = {
+            "ENDLESS_TRAILING_MODE": True, "QUICK_SCALP_MODE": False,
+            "QUICK_PROFIT_TARGET": 5.0, "DAILY_PROFIT_TARGET": 50.0,
+            "DAILY_LOSS_LIMIT": -30.0, "MAX_TOTAL_POSITIONS": 3, "MAX_ALLOWED_LOSS_USD": 30.0
+        }
 
-        # ดึงกราฟมาก่อน
+    ENDLESS_TRAILING_MODE = master_cfg.get("ENDLESS_TRAILING_MODE", True)  
+    QUICK_SCALP_MODE = master_cfg.get("QUICK_SCALP_MODE", False)      
+    QUICK_PROFIT_TARGET = float(master_cfg.get("QUICK_PROFIT_TARGET", 5.0))    
+    DAILY_PROFIT_TARGET = float(master_cfg.get("DAILY_PROFIT_TARGET", 50.0))   
+    DAILY_LOSS_LIMIT = float(master_cfg.get("DAILY_LOSS_LIMIT", -30.0))     
+    MAX_TOTAL_POSITIONS = int(master_cfg.get("MAX_TOTAL_POSITIONS", 3)) 
+    MAX_ALLOWED_LOSS_USD = float(master_cfg.get("MAX_ALLOWED_LOSS_USD", 30.0)) 
+    # ==========================================
+
+    # 📊 1. ตรวจสอบกำไรรายวัน & วินัยกองทุน
+    today = datetime.now()
+    start_of_day = datetime(today.year, today.month, today.day)
+    deals = mt5.history_deals_get(start_of_day, today)
+    profit_today = sum((d.profit + d.commission + d.swap) for d in deals if d.entry == mt5.DEAL_ENTRY_OUT) if deals else 0.0
+                
+    hit_daily_limit = False
+    if profit_today >= DAILY_PROFIT_TARGET:
+        if is_trading_enabled: print(f"\r🛑 [Daily Target] 🎉 วันนี้กำไรทะลุเป้า (+${profit_today:.2f}) AI งดออกไม้ใหม่! {' '*10}", end="")
+        hit_daily_limit = True
+    elif profit_today <= DAILY_LOSS_LIMIT:
+        if is_trading_enabled: print(f"\r🛑 [Daily Drawdown] ⚠️ ขาดทุนถึงลิมิต (${profit_today:.2f}) AI งดออกไม้ใหม่! {' '*10}", end="")
+        hit_daily_limit = True
+
+    # ⏱️ 2. ตรวจสอบเวลาเทรด
+    now_time = datetime.now().time()
+        
+    for symbol in active_symbols:
+        mt5.symbol_select(symbol, True) # 🌟 ปลุกเหรียญให้ตื่น บังคับดึงข้อมูลเข้าสู่ระบบ
+        sym_config = get_symbol_config(symbol)
+        
+        # 🌟🌟🌟 [เริ่ม: ระบบเช็คเวลาแบบรายเหรียญ] 🌟🌟🌟
+        start_time_str = sym_config.get('trade_start_time', '00:00')
+        end_time_str = sym_config.get('trade_end_time', '23:59')
+        
+        start_t = datetime.strptime(start_time_str, "%H:%M").time()
+        end_t = datetime.strptime(end_time_str, "%H:%M").time()
+        
+        if start_t <= end_t:
+            is_trading_time = (start_t <= now_time <= end_t)
+        else: # รองรับการตั้งเวลาข้ามคืน (เช่น 22:00 - 06:00)
+            is_trading_time = (now_time >= start_t or now_time <= end_t)
+        # 🌟🌟🌟 [จบ: ระบบเช็คเวลาแบบรายเหรียญ] 🌟🌟🌟
+        
         df = get_candles(symbol, TIMEFRAME, bars=200)
-        if df is None or df.empty:
+        
+        if df is None or df.empty: 
+            print(f"⚠️ [System] ดึงกราฟ {symbol} ไม่สำเร็จ ข้ามการประมวลผล...")
             continue
 
-        regime_text = "SCANNING..."
-
-        # คำนวณ TR (True Range) 
+        # 📊 3. วิเคราะห์สภาวะตลาด (Market Regime)
         high_low = df['high'] - df['low']
         high_close = (df['high'] - df['close'].shift()).abs()
         low_close = (df['low'] - df['close'].shift()).abs()
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        
-        # 🤖🤖🤖 ระบบสมองกลปรับค่าอัตโนมัติ (Dynamic Auto-Tune) 🤖🤖🤖
+                
         atr_14 = tr.rolling(14).mean().iloc[-1]
         atr_50 = tr.rolling(50).mean().iloc[-1]
         ema_20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
         ema_50 = df['close'].ewm(span=50, adjust=False).mean().iloc[-1]
+
+        # 🌟🌟🌟 [เริ่มโค้ดใหม่] เพิ่มการคำนวณ MACD และ RSI เพื่อทำระบบโหวต 🌟🌟🌟
+        # 1. คำนวณ RSI
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean().iloc[-1]
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean().iloc[-1]
+        rs = gain / loss if loss != 0 else 0
+        rsi_14 = 100 - (100 / (1 + rs))
+
+        # 2. คำนวณ MACD (มาตรฐาน 12, 26, 9)
+        exp1 = df['close'].ewm(span=12, adjust=False).mean()
+        exp2 = df['close'].ewm(span=26, adjust=False).mean()
+        macd_line = exp1 - exp2
+        signal_line = macd_line.ewm(span=9, adjust=False).mean()
+        macd_hist = (macd_line - signal_line).iloc[-1]
+
+        # 3. สร้างระบบโหวต (Confluence 2/3)
+        current_close = df['close'].iloc[-1]
+        
+        # เช็คคะแนนฝั่ง BUY (1 = ผ่าน, 0 = ไม่ผ่าน)
+        buy_score = 0
+        if rsi_14 > 50: buy_score += 1                  # RSI ชี้ขึ้น
+        if current_close > ema_50: buy_score += 1       # ราคาอยู่เหนือเส้น MA
+        if macd_hist > 0: buy_score += 1                # MACD แท่งสีเขียว
+        is_confluence_buy = buy_score >= 2              # ต้องได้ 2 ใน 3 ถึงจะให้ True
+
+        # เช็คคะแนนฝั่ง SELL
+        sell_score = 0
+        if rsi_14 < 50: sell_score += 1                 # RSI ชี้ลง
+        if current_close < ema_50: sell_score += 1      # ราคาอยู่ใต้เส้น MA
+        if macd_hist < 0: sell_score += 1               # MACD แท่งสีแดง
+        is_confluence_sell = sell_score >= 2            # ต้องได้ 2 ใน 3 ถึงจะให้ True
+        # 🌟🌟🌟 [จบโค้ดใหม่] 🌟🌟🌟
         
         is_high_vol = atr_14 > (atr_50 * 1.2)
         trend_dist = abs(ema_20 - ema_50) / ema_50
         is_strong_trend = trend_dist > 0.002
         
-        # 🌟 สร้างคำอธิบายสภาวะตลาด
         t_str = "🔥 STRONG TREND" if is_strong_trend else "💤 SIDEWAY"
         v_str = "🌊 HIGH VOL" if is_high_vol else "🧊 LOW VOL"
         regime_text = f"{t_str} | {v_str}"
-        
-        if sym_config.get('auto_tune', False):
-            # 🌟 ดึงค่าจาก Database ของใครของมัน
+
+        # 🤖 4. สมองกลเปลี่ยนเกียร์ (Auto-Tune Dynamic)
+        if sym_config.get('auto_tune', True):
+            # 🌟 ดึงค่าจากหน้าเว็บมาใช้ (ถ้าเว็บไม่ส่งมา ให้ใช้ค่า Default)
             if is_strong_trend:
-                sym_config['confidence'] = sym_config['at_trend_strong_conf']
-                sym_config['rr_ratio'] = sym_config['at_trend_strong_rr']
+                target_confidence_percent = float(sym_config.get('at_trend_strong_conf', 38.0))
+                rr_ratio = float(sym_config.get('at_trend_strong_rr', 1.5))
             else:
-                sym_config['confidence'] = sym_config['at_trend_weak_conf']
-                sym_config['rr_ratio'] = sym_config['at_trend_weak_rr']
+                target_confidence_percent = float(sym_config.get('at_trend_weak_conf', 42.0))
+                rr_ratio = float(sym_config.get('at_trend_weak_rr', 1.0))
                 
             if is_high_vol:
-                sym_config['atr_sl'] = sym_config['at_vol_high_atr_sl']
-                sym_config['break_even'] = sym_config['at_vol_high_be']
+                atr_mult = float(sym_config.get('at_vol_high_atr_sl', 1.5))
+                break_even_mult = float(sym_config.get('at_vol_high_be', 2.0))
             else:
-                sym_config['atr_sl'] = sym_config['at_vol_low_atr_sl']
-                sym_config['break_even'] = sym_config['at_vol_low_be']
-                
-            # อัปเดตค่าลง Database
-            from database.db import update_symbol_config
-            update_symbol_config(symbol, sym_config)
-        # 🤖🤖🤖 จบระบบ Auto-Tune 🤖🤖🤖
-
-        # ดึงตัวแปรมาใช้งาน
-        target_confidence_percent = sym_config["confidence"]
+                atr_mult = float(sym_config.get('at_vol_low_atr_sl', 1.0))
+                break_even_mult = float(sym_config.get('at_vol_low_be', 1.2))
+        else:
+            # โหมด Manual (ปิด Auto-tune)
+            target_confidence_percent = float(sym_config.get("confidence", 54.0))
+            atr_mult = float(sym_config.get("atr_sl", 2.0))
+            rr_ratio = float(sym_config.get("rr_ratio", 2.0))
+            break_even_mult = float(sym_config.get("break_even", 1.5))
+            
         risk_percent = sym_config["risk_percent"]
-        atr_mult = sym_config["atr_sl"]
-        rr_ratio = sym_config["rr_ratio"]
-        break_even_mult = sym_config["break_even"]
-
-        # โยน atr_mult ไปให้ Trailing Stop
         manage_dynamic_trailing_stop(symbol, timeframe=TIMEFRAME, atr_multiplier=atr_mult)
 
-        # AI ประมวลผลสถานการณ์ปัจจุบัน
+        # 🎯 5. ดึงสัญญาณจาก SMC และ XGBoost
         trend = detect_trend(df)
         raw_signal = choose_strategy(trend)
         liq_signal = liquidity_filter(df, raw_signal)
-        
-        prob = 0.5
+
         if liq_signal != "hold":
-            prob = predict_probability(df, symbol)
+            ai_buy_prob, ai_sell_prob = get_xgboost_prediction(df)
             
-        buy_prob = prob * 100
-        sell_prob = (1 - prob) * 100
+            # 🌟🌟🌟 ไฮไลท์การแก้: ถอดเกราะ Numpy ออก บังคับเป็น Float ธรรมดา! 🌟🌟🌟
+            buy_prob = float(ai_buy_prob * 100)
+            sell_prob = float(ai_sell_prob * 100)
+        else:
+            buy_prob, sell_prob = 50.0, 50.0
 
-        # โชว์สถานะ SLEEP ถ้านอกเวลาเทรด
         display_signal = liq_signal.upper() if liq_signal != "hold" else "HOLD"
-        if not is_trading_time:
+        
+        # 🌟 โหมดลืมตาตื่น: ถ้าลูกพี่ยังไม่ได้กด START ให้มันขึ้นสถานะ PAUSED แต่ความน่าจะเป็นยังอัปเดต!
+        if not is_trading_enabled:
+            display_signal = "PAUSED ⏸️"
+        elif not is_trading_time or hit_daily_limit:
             display_signal = "SLEEP 💤"
-            regime_text = "MARKET CLOSED"
 
-        # ส่งค่าขึ้นไปโชว์ที่ Dashboard
         live_signals[symbol] = {
-            "signal": display_signal,
-            "buy_prob": buy_prob,
-            "sell_prob": sell_prob,
-            "regime": regime_text
+            "signal": display_signal, 
+            "buy_prob": buy_prob, 
+            "sell_prob": sell_prob, 
+            "regime": regime_text,
+            "rsi": round(rsi_14, 2),       # ส่งค่า RSI
+            "ema50": round(ema_50, 2),     # ส่งค่า EMA 50
+            "macd": round(macd_hist, 2)    # ส่งค่า MACD Histogram
         }
 
-        # โชว์ใน Console (Terminal)
-        mode_str = "🤖 [AUTO]" if sym_config.get('auto_tune', False) else "⚙️ [MANUAL]"
-        print(f"[{time.strftime('%H:%M:%S')}] 🔍 {symbol} {mode_str} | SMC: {liq_signal.upper()} | B: {buy_prob:.1f}% S: {sell_prob:.1f}% | 🎯 {target_confidence_percent:.1f}% | {regime_text}")
+        # ปริ้นท์บอกสถานะใน Terminal (เพิ่มโชว์ RSI กับ MACD ในจอดำด้วยจะได้หล่อๆ)
+        if is_trading_enabled:
+            mode_str = "🤖 [AUTO]" if sym_config.get('auto_tune', False) else "⚙️ [MANUAL]"
+            print(f"[{time.strftime('%H:%M:%S')}] 🔍 {symbol} {mode_str} | SMC: {liq_signal.upper()} | B: {buy_prob:.1f}% S: {sell_prob:.1f}% | 🎯 {target_confidence_percent:.1f}% | 📊 RSI: {rsi_14:.1f} MACD: {macd_hist:.2f} | {regime_text}")
+
+        # 🌟🌟🌟 เบรกการเข้าเทรดตรงนี้เลย! ถ้าลูกพี่ยังไม่ได้กด START AI บอทจะวนลูปแค่นี้ (ไปสแกนเหรียญต่อไป)
+        if not is_trading_enabled:
+            continue
 
         # ==========================================
-        # 🛡️ โซนจัดการออเดอร์ (บีบโล่ + เติมกระสุน Add-on)
+        # 🛡️ โซนที่ 1: จัดการออเดอร์เก่า (ทำเสมอไม่ว่า Limit จะเต็มหรือไม่)
         # ==========================================
         positions = mt5.positions_get(symbol=symbol)
         
@@ -309,236 +498,150 @@ def run_bot_cycle(active_symbols: list):
                 sync_manual_order_to_db(pos)
                 apply_break_even(pos, df, break_even_mult)
 
-                # ⚡ ท่าไม้ตายใหม่: เก็บสั้นรับเงินสด (Quick Scalp Cash Out) ⚡
-                QUICK_PROFIT_TARGET = 5.0  # 🎯 ลูกพี่เปลี่ยนตัวเลขตรงนี้ได้เลย (เช่น กำไร $5 ปิดทันที)
-                
-                if pos.profit >= QUICK_PROFIT_TARGET:
-                    # ถ้าฟังก์ชันปิดออเดอร์ในระบบลูกพี่ใช้ชื่อ close_mt5_position ก็ใช้ตามนี้ได้เลย
+                # ⚡ 1.1 โหมด Quick Scalp
+                if QUICK_SCALP_MODE and pos.profit >= QUICK_PROFIT_TARGET:
                     if close_mt5_position(pos, comment="AI Quick Scalp"):
-                        msg = (
-                            f"⚡ <b>AI QUICK SCALP (สับไกเก็บสั้น)</b> ⚡\n\n"
-                            f"💱 <b>Symbol:</b> {symbol} (Ticket: {pos.ticket})\n"
-                            f"💰 <b>Net Profit:</b> 🟢 <b>+${pos.profit:.2f}</b>\n"
-                            f"🚨 <b>Reason:</b> ถึงเป้ากำไรเงินสด สับไกปิดออเดอร์หนีเข้ากระเป๋า!"
-                        )
-                        send_telegram_message(msg)
-                        print(f"⚡ [Quick Scalp] ปิดทำกำไรสั้น {symbol} รับเงิน +${pos.profit:.2f} ทันที!")
-                    continue # ปิดออเดอร์เสร็จแล้ว ข้ามไปดูไม้อื่นต่อเลยไม่ต้องทำคำสั่งด้านล่าง
+                        send_telegram_message(f"⚡ <b>AI QUICK SCALP</b>\n💱 {symbol}\n💰 🟢 <b>+${pos.profit:.2f}</b>")
+                        print(f"⚡ [Quick Scalp] ปิดกำไรสั้น {symbol} รับเงิน +${pos.profit:.2f}")
+                    continue 
 
-                # 🛡️ ท่าแก้เกม: ล็อคกำไรทันทีเมื่อถึงเป้าครึ่งทาง (Trailing Profit)
-                LOCK_PROFIT_TRIGGER = 3.0  # พอกำไรถึง $3
-                if pos.profit >= LOCK_PROFIT_TRIGGER and not pos.be_applied:
+                # 🌊 1.2 โหมด Endless Trailing
+                is_be_secured = (pos.type == mt5.ORDER_TYPE_BUY and pos.sl >= pos.price_open) or \
+                                (pos.type == mt5.ORDER_TYPE_SELL and pos.sl <= pos.price_open and pos.sl != 0.0)
+
+                if ENDLESS_TRAILING_MODE and pos.profit > 0 and is_be_secured:
                     tick = mt5.symbol_info_tick(symbol)
                     sym_info = mt5.symbol_info(symbol)
                     if tick and sym_info:
-                        # new_sl = pos.price_open # ขยับ SL มาบังทุนเป๊ะๆ
-                        
-                        # หรือถ้าอยากบังทุน + เอากำไรนิดนึงค่าธรรมเนียม
-                        new_sl = pos.price_open + 0.5 # (สำหรับ BUY)
-                        
-                        request = {
-                            "action": mt5.TRADE_ACTION_SLTP, "symbol": symbol,
-                            "sl": new_sl, "tp": pos.tp, "position": pos.ticket
-                        }
-                        if mt5.order_send(request).retcode == mt5.TRADE_RETCODE_DONE:
-                            pos.be_applied = True
-                            print(f"🔒 [Lock Profit] กำไรถึง ${LOCK_PROFIT_TRIGGER} เลื่อน SL บังทุนให้ {symbol}")
+                        trail_dist = atr_14 * atr_mult 
+                        new_sl = 0.0
+                        if pos.type == mt5.ORDER_TYPE_BUY:
+                            new_sl = tick.bid - trail_dist
+                            if pos.sl == 0.0 or new_sl > pos.sl:
+                                new_sl = round(new_sl, sym_info.digits)
+                                mt5.order_send({"action": mt5.TRADE_ACTION_SLTP, "symbol": symbol, "sl": new_sl, "tp": pos.tp, "position": pos.ticket})
+                        elif pos.type == mt5.ORDER_TYPE_SELL:
+                            new_sl = tick.ask + trail_dist
+                            if pos.sl == 0.0 or new_sl < pos.sl:
+                                new_sl = round(new_sl, sym_info.digits)
+                                mt5.order_send({"action": mt5.TRADE_ACTION_SLTP, "symbol": symbol, "sl": new_sl, "tp": pos.tp, "position": pos.ticket})
                                 
-                # จำแนกประเภทไม้
-                if pos.comment == "AI Addon":
-                    addon_count += 1
-                else:
-                    main_position = pos # ถือเป็นไม้หลัก
+                if pos.comment == "AI Addon": addon_count += 1
+                else: main_position = pos
                 
-                # 🛡️ ท่าไม้ตาย: ตั้งป้อมบีบโล่ (Aggressive Defense Mode)
-                defense_mode = False
-                if pos.type == mt5.ORDER_TYPE_BUY and liq_signal in ["sell", "strong_sell"] and sell_prob >= target_confidence_percent:
-                    defense_mode = True
-                elif pos.type == mt5.ORDER_TYPE_SELL and liq_signal in ["buy", "strong_buy"] and buy_prob >= target_confidence_percent:
-                    defense_mode = True
+                # 🛡️ 1.3 โหมดบีบโล่ (Aggressive Defense)
+                defense_mode = (pos.type == mt5.ORDER_TYPE_BUY and liq_signal in ["sell", "strong_sell"] and sell_prob >= target_confidence_percent) or \
+                               (pos.type == mt5.ORDER_TYPE_SELL and liq_signal in ["buy", "strong_buy"] and buy_prob >= target_confidence_percent)
                     
                 if defense_mode:
                     tick = mt5.symbol_info_tick(symbol)
                     sym_info = mt5.symbol_info(symbol)
-                    
                     if tick and sym_info:
-                        # ⚔️ บีบระยะโล่ให้เหลือแค่ 0.5 ATR (แคบมากๆ จ่อตูดราคาเลย)
                         aggressive_dist = atr_14 * 0.5 
-                        new_sl = 0.0
-                        
-                        if pos.type == mt5.ORDER_TYPE_BUY:
-                            new_sl = tick.bid - aggressive_dist
-                            if pos.sl == 0.0 or new_sl > pos.sl:
-                                new_sl = round(new_sl, sym_info.digits)
-                                request = {
-                                    "action": mt5.TRADE_ACTION_SLTP, "symbol": symbol,
-                                    "sl": new_sl, "tp": pos.tp, "position": pos.ticket
-                                }
-                                res = mt5.order_send(request)
-                                if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                                    msg = (f"🛡️ <b>AI DEFENSE MODE (ตั้งป้อมบีบโล่)</b> 🛡️\n\n"
-                                           f"💱 <b>Symbol:</b> {symbol}\n📦 <b>Type:</b> BUY (Ticket: {pos.ticket})\n"
-                                           f"🚨 <b>Reason:</b> AI ตรวจพบแรงเทขาย กราฟอาจจะทุบ!\n🎯 <b>Action:</b> ร่น SL มาที่ <b>{new_sl}</b>")
-                                    send_telegram_message(msg)
-                                    print(f"🛡️ [Defense Mode] เลื่อน SL ฝั่ง BUY {symbol} บีบแคบสุดๆ ที่ {new_sl}")
-
-                        elif pos.type == mt5.ORDER_TYPE_SELL:
-                            new_sl = tick.ask + aggressive_dist
-                            if pos.sl == 0.0 or new_sl < pos.sl:
-                                new_sl = round(new_sl, sym_info.digits)
-                                request = {
-                                    "action": mt5.TRADE_ACTION_SLTP, "symbol": symbol,
-                                    "sl": new_sl, "tp": pos.tp, "position": pos.ticket
-                                }
-                                res = mt5.order_send(request)
-                                if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                                    msg = (f"🛡️ <b>AI DEFENSE MODE (ตั้งป้อมบีบโล่)</b> 🛡️\n\n"
-                                           f"💱 <b>Symbol:</b> {symbol}\n📦 <b>Type:</b> SELL (Ticket: {pos.ticket})\n"
-                                           f"🚨 <b>Reason:</b> AI ตรวจพบแรงซื้อ กราฟอาจจะพุ่งสวน!\n🎯 <b>Action:</b> ร่น SL มาที่ <b>{new_sl}</b>")
-                                    send_telegram_message(msg)
-                                    print(f"🛡️ [Defense Mode] เลื่อน SL ฝั่ง SELL {symbol} บีบแคบสุดๆ ที่ {new_sl}")
+                        new_sl = tick.bid - aggressive_dist if pos.type == mt5.ORDER_TYPE_BUY else tick.ask + aggressive_dist
+                        if (pos.type == mt5.ORDER_TYPE_BUY and (pos.sl == 0.0 or new_sl > pos.sl)) or \
+                           (pos.type == mt5.ORDER_TYPE_SELL and (pos.sl == 0.0 or new_sl < pos.sl)):
+                            new_sl = round(new_sl, sym_info.digits)
+                            mt5.order_send({"action": mt5.TRADE_ACTION_SLTP, "symbol": symbol, "sl": new_sl, "tp": pos.tp, "position": pos.ticket})
             
-            # 🚀 ท่าไม้ตาย: ยิงไม้เพิ่ม (Pyramiding Add-On)
-            # ทำงานเมื่อ: อยู่ในเวลาเทรด + เปิด Auto-Tune + มีไม้หลัก + โควต้ายังเหลือ + กราฟเป็น STRONG TREND
-            if is_trading_time and sym_config.get('auto_tune', False) and main_position and addon_count < (MAX_TOTAL_POSITIONS - 1) and is_strong_trend:
+            # 🚀 1.4 โหมด Add-On (Pyramiding)
+            if is_trading_time and not hit_daily_limit and sym_config.get('auto_tune', False) and main_position and addon_count < (MAX_TOTAL_POSITIONS - 1) and is_strong_trend:
+                main_secured = (main_position.type == mt5.ORDER_TYPE_BUY and main_position.sl >= main_position.price_open) or \
+                               (main_position.type == mt5.ORDER_TYPE_SELL and main_position.sl <= main_position.price_open and main_position.sl != 0.0)
                 
-                # เช็คก่อนว่าไม้หลัก "ไร้ความเสี่ยง (Secured)" หรือยัง?
-                main_secured = False
-                if main_position.type == mt5.ORDER_TYPE_BUY and main_position.sl >= main_position.price_open:
-                    main_secured = True
-                elif main_position.type == mt5.ORDER_TYPE_SELL and main_position.sl <= main_position.price_open and main_position.sl != 0.0:
-                    main_secured = True
-                
-                # ถ้าไม้หลักปลอดภัยแล้ว ให้หาจังหวะ Add-On
                 if main_secured:
                     final_addon_signal = None
-                    if main_position.type == mt5.ORDER_TYPE_BUY and buy_prob >= target_confidence_percent:
+                    # 🌟 เติม and is_confluence_... เข้าไปดักไม้ Add-on ด้วยครับ
+                    if main_position.type == mt5.ORDER_TYPE_BUY and buy_prob >= target_confidence_percent and is_confluence_buy: 
                         final_addon_signal = "strong_buy"
-                    elif main_position.type == mt5.ORDER_TYPE_SELL and sell_prob >= target_confidence_percent:
+                    elif main_position.type == mt5.ORDER_TYPE_SELL and sell_prob >= target_confidence_percent and is_confluence_sell: 
                         final_addon_signal = "strong_sell"
-                        
+                                                
                     if final_addon_signal:
-                        tick = mt5.symbol_info_tick(symbol)
-                        sym_info = mt5.symbol_info(symbol)
-                        
+                        tick, sym_info = mt5.symbol_info_tick(symbol), mt5.symbol_info(symbol)
                         if tick and sym_info:
-                            lot = main_position.volume # ใช้ Lot เท่าไม้หลัก
-                            sl_dist = atr_14 * atr_mult
-                            tp_dist = sl_dist * rr_ratio
+                            lot = main_position.volume 
+                            sl_dist, tp_dist = atr_14 * atr_mult, (atr_14 * atr_mult) * rr_ratio
                             
-                            if main_position.type == mt5.ORDER_TYPE_BUY:
-                                sl_price = round(tick.ask - sl_dist, sym_info.digits)
-                                tp_price = round(tick.ask + tp_dist, sym_info.digits)
-                            else:
-                                sl_price = round(tick.bid + sl_dist, sym_info.digits)
-                                tp_price = round(tick.bid - tp_dist, sym_info.digits)
+                            sl_price = round(tick.ask - sl_dist if main_position.type == mt5.ORDER_TYPE_BUY else tick.bid + sl_dist, sym_info.digits)
+                            tp_price = 0.0 if ENDLESS_TRAILING_MODE else round(tick.ask + tp_dist if main_position.type == mt5.ORDER_TYPE_BUY else tick.bid - tp_dist, sym_info.digits)
                                 
                             result = send_order(symbol, final_addon_signal, lot, sl=sl_price, tp=tp_price, comment="AI Addon")
                             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                                # ถ้าฟังก์ชัน save_new_trade ของลูกพี่มีพารามิเตอร์ comment ก็ใส่ได้เลย แต่ถ้าไม่มี เอาไว้เท่านี้ก่อนได้ครับ
                                 save_new_trade(result.order, symbol, final_addon_signal, result.price)
-                                msg = (
-                                    f"🔥 <b>AI ADD-ON EXECUTED (ยิงไม้เร่งกำไร)</b> 🔥\n\n"
-                                    f"🎯 <b>Signal:</b> {final_addon_signal.upper()}\n"
-                                    f"💱 <b>Symbol:</b> {symbol}\n"
-                                    f"💰 <b>Add Entry:</b> {result.price}\n"
-                                    f"📦 <b>Lot:</b> {lot}\n"
-                                    f"🚨 <b>Reason:</b> เทรนด์แกร่ง + ไม้หลักปลอดภัย สบจังหวะอัดไม้เพิ่ม!"
-                                )
-                                send_telegram_message(msg)
-                                print(f"🔥 [Add-On] ยิงไม้เพิ่มเหรียญ {symbol} (Ticket: {result.order}) ล็อคเป้าเร่งกำไร!")
+                                send_telegram_message(f"🔥 <b>AI ADD-ON EXECUTED</b> 🔥\n\n💱 <b>Symbol:</b> {symbol}\n💰 <b>Add Entry:</b> {result.price}")
 
-            # 🛑 หยุดลูปการเข้าเทรดไม้หลัก ถ้ามีของอยู่ในมือแล้ว (จะไม้หลักหรือไม้ Add-on ก็ตาม)
-            continue
+            continue # จบกระบวนการถ้ามีออเดอร์ค้างอยู่
 
         # ==========================================
-        # 🚀 โซนยิงออเดอร์ใหม่ (ไม้หลัก - เมื่อมือว่างสนิท)
+        # 🚀 โซนที่ 2: โซนยิงออเดอร์ใหม่ (ไม้หลัก)
         # ==========================================
-        if not is_trading_time:
-            continue
+        if not is_trading_time or hit_daily_limit: continue
+
+        # 📰 2.1 หลบข่าวกล่องแดง
+        try:
+            is_safe, news_time = is_safe_from_news(buffer_mins=30)
+            if not is_safe:
+                print(f"\r📰 [News Filter] 🚨 ใกล้เวลาข่าวกล่องแดง ({news_time.strftime('%H:%M')}) บอทงดออกไม้อัตโนมัติ! {' '*10}", end="")
+                continue 
+        except Exception: pass
         
+        # 🎯 2.2 คัดกรองสัญญาณสุดท้าย
         final_signal = None
-        if liq_signal in ["buy", "strong_buy"] and buy_prob >= target_confidence_percent:
+
+        # 🌟 ใช้บล็อกนี้บล็อกเดียวจบครับ! ต้องผ่านทั้ง SMC, AI Confidence และระบบโหวต 2/3
+        if liq_signal in ["buy", "strong_buy"] and buy_prob >= target_confidence_percent and is_confluence_buy:
             final_signal = liq_signal
-        elif liq_signal in ["sell", "strong_sell"] and sell_prob >= target_confidence_percent:
+        elif liq_signal in ["sell", "strong_sell"] and sell_prob >= target_confidence_percent and is_confluence_sell:
             final_signal = liq_signal
 
         if final_signal:
             account = get_account_info()
-            if not account: continue
+            symbol_info = mt5.symbol_info(symbol)
+            if not account or not symbol_info: continue
                 
             raw_lot = calculate_lot_size(account["balance"], risk_percentage=risk_percent)
-            symbol_info = mt5.symbol_info(symbol)
-            if symbol_info is None: continue
-                
             min_lot, step_lot = symbol_info.volume_min, symbol_info.volume_step
             lot = round(max(raw_lot, min_lot) / step_lot) * step_lot
             
-            # คำนวณระยะด้วย ATR
-            sl_distance = atr_14 * atr_mult
-            tp_distance = sl_distance * rr_ratio
-            
+            sl_distance, tp_distance = atr_14 * atr_mult, (atr_14 * atr_mult) * rr_ratio
             tick = mt5.symbol_info_tick(symbol)
-            if tick is None: 
-                continue 
+            if not tick: continue 
                 
-            sl_price = 0.0
-            tp_price = 0.0
+            sl_price = tick.ask - sl_distance if final_signal in ["buy", "strong_buy"] else tick.bid + sl_distance
+            tp_price = 0.0 if ENDLESS_TRAILING_MODE else (tick.ask + tp_distance if final_signal in ["buy", "strong_buy"] else tick.bid - tp_distance)
             
-            if final_signal in ["buy", "strong_buy"]:
-                sl_price = tick.ask - sl_distance
-                tp_price = tick.ask + tp_distance
-            elif final_signal in ["sell", "strong_sell"]:
-                sl_price = tick.bid + sl_distance
-                tp_price = tick.bid - tp_distance
-                
             sl_price = round(sl_price, symbol_info.digits)
             tp_price = round(tp_price, symbol_info.digits)
 
-            # 🛡️ 🌟 ท่าแก้เกม: ระบบเบรกฉุกเฉิน (Max Dollar Risk Cap) 🌟 🛡️
-            MAX_ALLOWED_LOSS_USD = 25.0  # 💵 ลิมิตยอมขาดทุนสูงสุดต่อไม้
-            
-            # ดึง Contract Size ของเหรียญนั้นๆ จาก Exness โดยตรง (XAU=100, BTC=1, ETH=...)
+            # 🛡️ 2.3 ระบบเบรกฉุกเฉิน (Risk Failsafe)
             contract_size = symbol_info.trade_contract_size
-            
-            # คำนวณความเสี่ยงที่แม่นยำ 100%
-            if final_signal in ["buy", "strong_buy"]:
-                estimated_loss_usd = abs(tick.ask - sl_price) * lot * contract_size
-            else:
-                estimated_loss_usd = abs(sl_price - tick.bid) * lot * contract_size
+            estimated_loss_usd = abs(tick.ask - sl_price) * lot * contract_size if final_signal in ["buy", "strong_buy"] else abs(sl_price - tick.bid) * lot * contract_size
             
             if estimated_loss_usd > MAX_ALLOWED_LOSS_USD:
-                print(f"🚫 [Risk Control] กราฟผันผวนหนัก! ระยะ SL กว้างเกินไป เสี่ยงติดลบ ${estimated_loss_usd:.2f} (เกินลิมิต ${MAX_ALLOWED_LOSS_USD}) -> ยกเลิกการยิงออเดอร์หนีตาย!")
-                continue # ข้ามการเทรดไม้นี้ไปเลย ไม่ต้องส่งคำสั่งไป MT5!
-            # 🛡️ 🌟 สิ้นสุดระบบเบรกฉุกเฉิน 🌟 🛡️
+                print(f"🚫 [Risk Control] กราฟผันผวนหนัก! เสี่ยงติดลบ ${estimated_loss_usd:.2f} (เกินลิมิต ${MAX_ALLOWED_LOSS_USD}) ยกเลิกออเดอร์!")
+                continue 
             
-            # 🌟 ประทับตรา comment="AI Main" ให้ไม้หลัก เพื่อให้ระบบ Add-on จำแนกได้
+            # 🚀 2.4 สับไกยิงไม้หลัก
             result = send_order(symbol, final_signal, lot, sl=sl_price, tp=tp_price, comment="AI Main")
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 save_new_trade(result.order, symbol, final_signal, result.price)
-                msg = (
-                    f"🚨 <b>QUANTUM AI EXECUTED (ไม้หลัก)</b> 🚨\n\n"
-                    f"🎯 <b>Signal:</b> {final_signal.upper()}\n"
-                    f"💱 <b>Symbol:</b> {symbol}\n"
-                    f"💰 <b>Entry:</b> {result.price}\n"
-                    f"🛡️ <b>Stop Loss:</b> {sl_price} (ATR x{atr_mult})\n"
-                    f"🚀 <b>Take Profit:</b> {tp_price} (R:R 1:{rr_ratio})\n"
-                    f"📦 <b>Lot:</b> {lot} (Risk: {risk_percent}%)\n"
-                    f"⏱️ <b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
-                )
+                msg = (f"🚨 <b>QUANTUM AI EXECUTED (ไม้หลัก)</b> 🚨\n\n🎯 <b>Signal:</b> {final_signal.upper()}\n💱 <b>Symbol:</b> {symbol}\n💰 <b>Entry:</b> {result.price}")
                 send_telegram_message(msg)
 
-
+# ==========================================
+# ▶️ จุดสตาร์ทการทำงาน (Main Execution)
+# ==========================================
 if __name__ == "__main__":
-    print("🤖 กำลังปลุก Quantum AI Trader PRO...")
+    print("🤖 กำลังปลุก Quantum AI Trader PRO V4.3...")
     if connect_mt5():
         try:
             while True:
                 settings = get_bot_settings_db()
                 active_symbols = [s.strip() for s in settings.symbols.split(",") if s.strip()]
-                
-                run_bot_cycle(active_symbols) 
-                time.sleep(10)
+                # เปิดใช้งานบอทแบบ Standalone (เทสโดยไม่ผ่านเว็บ)
+                run_bot_cycle(active_symbols, is_trading_enabled=True) 
+                time.sleep(10) # รอบสแกนทุกๆ 10 วินาที
         except KeyboardInterrupt:
             print("\n🛑 หยุดการทำงานของบอทด้วยผู้ใช้")
             mt5.shutdown()

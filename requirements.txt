@@ -13,3 +13,6 @@ passlib[bcrypt]
 python-dotenv
 websockets
 openpyxl
+requests
+optuna  
+joblib

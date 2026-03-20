@@ -1,20 +1,24 @@
-from fastapi import FastAPI, Depends, Query, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI,Request, Depends, Query, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware  
-from database.db import get_symbol_config, update_symbol_config
 from pydantic import BaseModel
 import asyncio
 import json
 import MetaTrader5 as mt5
-from bot.backtest import run_backtest_pro
+import os
 
-# นำเข้าโมดูลที่เราเขียนไว้
+
+# ==========================================
+# 📦 โซนนำเข้าโมดูลของระบบ (Local Imports)
+# ==========================================
+from database.db import (
+    get_all_trades, get_bot_settings_db, update_bot_settings_db, 
+    get_symbol_config, update_symbol_config
+)
 from mt5_engine.connect import connect_mt5, get_account_info
 from bot.quantum_trader import run_bot_cycle, live_signals
+from bot.backtest import run_backtest_pro
 from api.auth import create_access_token, get_current_admin, ADMIN_USERNAME, ADMIN_PASSWORD
-
-# 👇 นำเข้าฟังก์ชันดึงค่าจาก DB เข้ามาใช้งาน
-from database.db import get_all_trades, get_bot_settings_db, update_bot_settings_db
 
 app = FastAPI(title="Quantum AI Control Panel")
 
@@ -27,13 +31,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🌟 สร้าง Model รับค่า
+
+CONFIG_FILE = "master_config.json"
+
+# ฟังก์ชันอ่านค่าตั้งค่า
+def load_master_config():
+    default_config = {
+        "ENDLESS_TRAILING_MODE": True,
+        "QUICK_SCALP_MODE": False,
+        "QUICK_PROFIT_TARGET": 5.0,
+        "DAILY_PROFIT_TARGET": 50.0,
+        "DAILY_LOSS_LIMIT": -30.0,
+        "MAX_TOTAL_POSITIONS": 3,
+        "MAX_ALLOWED_LOSS_USD": 30.0
+    }
+    if not os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(default_config, f)
+        return default_config
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return default_config
+
+# ==========================================
+# 📝 โซน Data Models (Pydantic)
+# ==========================================
 class BotSettings(BaseModel):
     confidence: float
     risk_percent: float
     symbols: str
-    trade_start_time: str  # 🌟 เพิ่มบรรทัดนี้
-    trade_end_time: str    # 🌟 เพิ่มบรรทัดนี้
+    trade_start_time: str 
+    trade_end_time: str   
 
 class SymbolSettingUpdate(BaseModel):
     confidence: float
@@ -41,8 +71,7 @@ class SymbolSettingUpdate(BaseModel):
     atr_sl: float
     rr_ratio: float
     break_even: float
-    auto_tune: bool  # 🤖 เพิ่มบรรทัดนี้
-    # 🤖 เพิ่มพารามิเตอร์ Auto-Tune เข้ามา
+    auto_tune: bool
     at_trend_strong_conf: float
     at_trend_strong_rr: float
     at_trend_weak_conf: float
@@ -52,9 +81,8 @@ class SymbolSettingUpdate(BaseModel):
     at_vol_low_atr_sl: float
     at_vol_low_be: float
 
-
 # ==========================================
-# 🔐 Authentication
+# 🔐 API โซน: Authentication
 # ==========================================
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -65,7 +93,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": token, "token_type": "bearer"}
 
 # ==========================================
-# 📊 API ดึงประวัติเทรด
+# 📊 API โซน: ดึงประวัติเทรด
 # ==========================================
 @app.get("/api/trades")
 async def api_get_trades(current_admin: str = Depends(get_current_admin)):
@@ -91,7 +119,7 @@ async def api_get_trades(current_admin: str = Depends(get_current_admin)):
     return {"status": "success", "data": live_trades}
 
 # ==========================================
-# 🎛️ API ดึงและอัปเดตการตั้งค่าบอท
+# 🎛️ API โซน: ตั้งค่าบอท (Settings)
 # ==========================================
 @app.get("/api/settings/bot")
 def get_bot_settings():
@@ -100,21 +128,18 @@ def get_bot_settings():
         "confidence": db_settings.confidence * 100,
         "risk_percent": db_settings.risk_percent,
         "symbols": db_settings.symbols,
-        "trade_start_time": db_settings.trade_start_time, # 🌟 ดึงไปโชว์หน้าเว็บ
-        "trade_end_time": db_settings.trade_end_time      # 🌟 ดึงไปโชว์หน้าเว็บ
+        "trade_start_time": db_settings.trade_start_time, 
+        "trade_end_time": db_settings.trade_end_time      
     }
 
 @app.post("/api/settings/bot")
 def update_bot_settings(settings: BotSettings):
     try:
-        # แปลงค่าเพื่อเซฟลง DB
         confidence_val = settings.confidence / 100.0
         risk_val = settings.risk_percent
-        raw_symbols = settings.symbols.split(",")
-        clean_symbols = [s.strip() for s in raw_symbols if s.strip()]
+        clean_symbols = [s.strip() for s in settings.symbols.split(",") if s.strip()]
         symbols_str = ",".join(clean_symbols)
 
-        # 🌟 ต้องส่งค่าไป 5 ตัวให้ตรงกับที่ไฟล์ db.py ต้องการ!
         update_bot_settings_db(
             confidence_val, 
             risk_val, 
@@ -122,10 +147,8 @@ def update_bot_settings(settings: BotSettings):
             settings.trade_start_time, 
             settings.trade_end_time
         )
-        
         return {"status": "success"}
     except Exception as e:
-        # ดักจับ Error เผื่อไว้ จะได้รู้ว่าพังที่ไหน
         print(f"❌ [API Error] Update Global Settings: {e}")
         return {"status": "error", "message": str(e)}
 
@@ -135,10 +158,12 @@ def api_get_sym_setting(symbol: str):
 
 @app.post("/api/settings/symbol/{symbol}")
 def api_update_sym_setting(symbol: str, settings: SymbolSettingUpdate):
-    # ส่งค่าทั้งหมดไปเซฟแบบ Dictionary
     update_symbol_config(symbol, settings.dict())
     return {"status": "success", "message": f"Updated {symbol}"}
 
+# ==========================================
+# 🚨 API โซน: ควบคุมฉุกเฉิน & ทศสอบระบบ
+# ==========================================
 @app.post("/api/trades/close_all")
 def api_close_all_positions():
     """ฟังก์ชันฉุกเฉิน: ทิ้งทุกออเดอร์ในพอร์ตทันที (Panic Close)"""
@@ -155,7 +180,6 @@ def api_close_all_positions():
             tick = mt5.symbol_info_tick(pos.symbol)
             if not tick: continue
             
-            # สลับฝั่งเพื่อปิดออเดอร์
             action_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
             price = tick.bid if action_type == mt5.ORDER_TYPE_SELL else tick.ask
             
@@ -166,8 +190,8 @@ def api_close_all_positions():
                 "volume": pos.volume,
                 "type": action_type,
                 "price": price,
-                "deviation": 30, # เผื่อ Slippage ให้กว้างหน่อยเพราะช่วงข่าวสวิงแรง
-                "magic": 9999,   # รหัสฉุกเฉิน
+                "deviation": 30, 
+                "magic": 9999,   
                 "comment": "Panic Close (Web)",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
@@ -180,25 +204,40 @@ def api_close_all_positions():
     except Exception as e:
         print(f"❌ [Panic Close Error]: {e}")
         return {"status": "error", "message": str(e)}
-    
-# อย่าลืม Import ฟังก์ชัน backtest จากไฟล์ของลูกพี่มาไว้บนสุดของไฟล์ด้วยนะครับ
-# เช่น: from bot.backtest import run_backtest_pro
 
 @app.get("/api/backtest/{symbol}")
 def api_run_backtest(symbol: str, bars: int = Query(5000)):
-    """API รัน Backtest ที่สามารถกำหนดจำนวนแท่งเทียนได้"""
+    """API รัน Backtest: แก้บั๊กเช็คสถานะให้หน้าเว็บอ่านรู้เรื่อง"""
     try:
-        # เรียกใช้ฟังก์ชันรัน Backtest
-        from bot.backtest import run_backtest_pro
         report = run_backtest_pro(symbol, bars=bars) 
         
-        if report and report.get("status") == "success":
+        # เช็คว่ามี error ส่งกลับมาจากบอทหรือไม่
+        if report and "error" in report:
+            return {"status": "error", "message": report["error"]}
+            
+        # ถ้ามีออเดอร์ถูกเทรดจริงๆ ให้ส่ง success กลับไปหน้าเว็บ
+        if report and report.get("total_trades", 0) > 0:
+            report["status"] = "success"  # 🌟 ยัดป้าย success ให้หน้าเว็บรู้
             return report
         else:
-            return {"status": "error", "message": report.get("message", "ไม่มีข้อมูลการเทรดในรอบนี้")}
+            return {"status": "error", "message": "ไม่มีข้อมูลการเทรดในรอบนี้ (กราฟอาจจะวิ่งไม่ถึงเป้าเลย)"}
+            
     except Exception as e:
         print(f"❌ [API Backtest Error]: {e}")
         return {"status": "error", "message": str(e)}
+    
+# API สำหรับดึงค่าไปโชว์หน้าเว็บ
+@app.get("/api/master-settings")
+def get_master_settings():
+    return load_master_config()
+
+# API สำหรับบันทึกค่าจากหน้าเว็บ
+@app.post("/api/master-settings")
+async def save_master_settings(request: Request):
+    new_config = await request.json()
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(new_config, f)
+    return {"status": "success", "message": "Master settings updated!"}
 
 # ==========================================
 # ⚡ WebSockets (Real-time Dashboard)
@@ -212,14 +251,15 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        for connection in self.active_connections:
+        for connection in self.active_connections.copy():
             try:
                 await connection.send_text(json.dumps(message))
-            except:
-                pass
+            except Exception:
+                self.disconnect(connection)
 
 manager = ConnectionManager()
 
@@ -233,47 +273,78 @@ bot_state = {
 }
 account_state = {"balance": 0.0, "equity": 0.0}
 
+
 async def bot_stream_engine():
     """รันบอทจริงและยิงข้อมูลสถานะพอร์ตแบบ Real-time ไปที่หน้าเว็บ"""
-    connect_mt5()
-
+    print("🟢 [System] WebSocket Engine เริ่มทำงานแล้ว! ท่อส่งข้อมูลพร้อม!")
+    
     while True:
         try:
-            # 📥 ดึงค่าล่าสุดจาก DB เสมอ ไม่ว่าบอทจะวิ่งหรือหยุด
             db_settings = get_bot_settings_db()
             active_symbols = [s.strip() for s in db_settings.symbols.split(",") if s.strip()]
+            is_running = bot_state.get("is_running", False)
 
-            if bot_state["is_running"]:
-                # 🚀 1. โยนแค่รายชื่อเหรียญไปให้สมองบอท! (ลบ parameter อื่นทิ้งหมดแล้ว)
-                await asyncio.to_thread(
-                    run_bot_cycle, 
-                    active_symbols
-                )
-
-            # 📊 2. ดึงข้อมูลพอร์ต "ของจริง"
-            account = get_account_info()
-            if account:
-                account_state["balance"] = account["balance"]
-                account_state["equity"] = account["equity"]
-                bot_state["profit_today"] = account["equity"] - account["balance"]
-
-                # กรองให้ส่งไปเฉพาะเหรียญที่กำลัง Active อยู่ตอนนี้ตามใน Database
-                filtered_signals = {k: v for k, v in live_signals.items() if k in active_symbols}
+            def thread_safe_bot():
+                import MetaTrader5 as mt5
+                from mt5_engine.connect import connect_mt5, get_account_info
+                from bot.quantum_trader import run_bot_cycle, live_signals
                 
-                bot_state["live_signals"] = filtered_signals
-                bot_state["current_symbol"] = ", ".join(active_symbols)
+                if not mt5.initialize():
+                    return None, {}
+                    
+                run_bot_cycle(active_symbols, is_trading_enabled=is_running)
+                acc = get_account_info()
+                return acc, dict(live_signals)
 
-                # 📡 3. บรอดแคสต์ข้อมูล
-                await manager.broadcast({
-                    "bot": bot_state,
-                    "account": account_state
-                })
-            
+            try:
+                acc, current_signals = await asyncio.wait_for(
+                    asyncio.to_thread(thread_safe_bot), 
+                    timeout=10.0
+                )
+            except asyncio.TimeoutError:
+                print("❌ [WS Error] MT5 ค้าง! สแกนกราฟนานเกิน 10 วินาที")
+                acc, current_signals = None, bot_state.get("live_signals", {})
+            except Exception as e:
+                print(f"❌ [WS Error] บอทพังตอนสแกน: {e}")
+                acc, current_signals = None, bot_state.get("live_signals", {})
+
+            # 1. อัปเดตข้อมูลพอร์ต (แปลงเป็น float ธรรมดา)
+            if acc:
+                account_state["balance"] = float(acc["balance"])
+                account_state["equity"] = float(acc["equity"])
+                bot_state["profit_today"] = float(acc["equity"] - acc["balance"])
+
+            # 🌟 2. ไฮไลท์การแก้: แปลง Numpy Float ให้เป็น Python Float ธรรมดาก่อนส่ง!
+            filtered_signals = {}
+            for k, v in current_signals.items():
+                if k in active_symbols:
+                    filtered_signals[k] = {
+                        "signal": str(v.get("signal", "HOLD")),
+                        "buy_prob": float(v.get("buy_prob", 50.0)),  # 🌟 ถอดเกราะ Numpy ออก
+                        "sell_prob": float(v.get("sell_prob", 50.0)), # 🌟 ถอดเกราะ Numpy ออก
+                        "regime": str(v.get("regime", "-")),
+                        "rsi": float(v.get("rsi", 0)),       # ส่งค่า RSI
+                        "ema50": float(v.get("ema50", 0)),     # ส่งค่า EMA 50
+                        "macd": float(v.get("macd", 0))    # ส่งค่า MACD Histogram
+                    }
+                    
+            bot_state["live_signals"] = filtered_signals
+            bot_state["current_symbol"] = ", ".join(active_symbols)
+
         except Exception as e:
-            print(f"⚠️ [System Warning] เกิดข้อผิดพลาดในลูปบอท: {e}")
+            print(f"⚠️ [System Warning] ลูปหลักสะดุด: {e}")
 
-        # ให้บอทสแกนตลาดทุกๆ 5 วินาที
+        # 📡 3. ยิงข้อมูลเข้า WebSocket (ตอนนี้ JSON จะไม่ระเบิดแล้ว)
+        try:
+            await manager.broadcast({
+                "bot": bot_state,
+                "account": account_state
+            })
+        except Exception as e:
+            print(f"❌ [WS Error] ส่งข้อมูลผ่าน WebSocket ไม่สำเร็จ: {e}")
+
         await asyncio.sleep(5)
+
 
 @app.on_event("startup")
 async def startup_event():

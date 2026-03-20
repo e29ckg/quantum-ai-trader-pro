@@ -1,83 +1,117 @@
 <template>
   <div>
-    <div v-if="!isAuthenticated" class="login-wrapper">
-      <div class="login-box">
-        <h2 class="title-glow">🧠 Quantum AI</h2>
+    <div v-if="!isAuthenticated" class="login-wrapper slide-fade">
+      <div class="login-box glow-panel">
+        <h2 class="title-glow pulse-slow">🧠 Quantum AI</h2>
         <p class="subtitle">Institutional Control Panel</p>
-        
         <form @submit.prevent="handleLogin">
           <input v-model="loginForm.username" type="text" placeholder="Username (admin)" required />
           <input v-model="loginForm.password" type="password" placeholder="Password" required />
-          <button type="submit" class="btn-login">ACCESS SYSTEM</button>
+          <button type="submit" class="btn-login btn-hover-effect">ACCESS SYSTEM</button>
           <p v-if="loginError" class="error-msg">{{ loginError }}</p>
         </form>
       </div>
     </div>
 
-    <div v-else class="dashboard-container">
-      <header class="header">
-        <h1>🧠 Quantum AI <span class="version-tag">PRO</span></h1>
+    <div v-else class="dashboard-container slide-up">
+      <header class="header glass-effect">
+        <h1>🧠 Quantum AI <span class="version-tag">PRO V5</span></h1>
         
         <div class="nav-tabs">
-            <button @click="currentView = 'dashboard'" :class="['tab-btn', { active: currentView === 'dashboard' }]">📈 DASHBOARD</button>
-            <button @click="currentView = 'backtest'" :class="['tab-btn', { active: currentView === 'backtest' }]">🧪 BACKTEST LAB</button>
+            <button @click="currentView = 'dashboard'" :class="['tab-btn', { active: currentView === 'dashboard' }]">📈 COMMAND CENTER</button>
+            <button @click="currentView = 'backtest'" :class="['tab-btn', { active: currentView === 'backtest' }]">🧪 QUANT LAB</button>
         </div>
 
         <div class="header-actions">
           <button @click="panicCloseAll" class="btn-panic" title="ปิดทุกออเดอร์ทันที!">🚨 PANIC CLOSE</button>
-          
           <button v-if="!isRunning" @click="toggleBot('start')" class="btn-start-nav">🚀 START AI</button>
-          <button v-else @click="toggleBot('stop')" class="btn-stop-nav">🛑 STOP AI</button>
+          <button v-else @click="toggleBot('stop')" class="btn-stop-nav pulse-slow">🛑 STOP AI</button>
           
           <span class="status-badge" :class="wsStatusClass">
-            {{ wsStatusText }} | {{ isRunning ? '🟢 BOT ONLINE' : '🔴 BOT OFFLINE' }}
+            <span class="dot" :class="{ 'dot-blink': isConnected }"></span>
+            {{ wsStatusText }} | {{ isRunning ? 'BOT ONLINE' : 'BOT OFFLINE' }}
           </span>
           <button @click="handleLogout" class="btn-logout">🚪 Logout</button>
         </div>
       </header>
 
-      <div v-if="currentView === 'dashboard'">
-        <main class="grid-layout">
-          <section class="card account-info">
-            <h2>Account Overview</h2>
-            <div class="stats">
-              <p>Balance: <strong>${{ formatMoney(account.balance) }}</strong></p>
-              <p>Equity: <strong class="text-glow">${{ formatMoney(account.equity) }}</strong></p>
-              <p class="profit" :class="{'loss': botData.profit_today < 0}">
-                Profit Today: <strong>{{ botData.profit_today >= 0 ? '+' : '' }}${{ formatMoney(botData.profit_today) }}</strong>
-              </p>
+      <div v-show="currentView === 'dashboard'" class="fade-in">
+        
+        <section class="mega-grid-top">
+          
+          <div class="card premium-card account-card hover-float">
+            <h2 class="card-title">💳 Portfolio Status</h2>
+            <div class="stats-container">
+              <div class="stat-row">
+                <span class="stat-label">Balance</span>
+                <strong class="stat-value counter-animate">${{ formatMoney(account.balance) }}</strong>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Equity</span>
+                <strong class="stat-value text-glow text-blue counter-animate">${{ formatMoney(account.equity) }}</strong>
+              </div>
+              <div class="stat-divider"></div>
+              <div class="stat-row profit-row" :class="botData.profit_today >= 0 ? 'bg-profit' : 'bg-loss'">
+                <span class="stat-label">Daily PnL</span>
+                <strong class="stat-value" :class="botData.profit_today >= 0 ? 'text-profit' : 'text-loss'" style="font-size: 1.8em;">
+                  {{ botData.profit_today >= 0 ? '+' : '' }}${{ formatMoney(botData.profit_today) }}
+                </strong>
+              </div>
             </div>
-          </section>
+          </div>
 
-          <section class="card control-panel" style="grid-column: 1 / -1;">
+          <div class="card premium-card chart-card hover-float">
+            <div class="chart-header">
+              <h2 class="card-title" style="margin:0; border:none;">📈 Live Equity Curve</h2>
+              <span class="live-indicator"><span class="dot dot-blink"></span> Live Data</span>
+            </div>
+            <div id="equity-chart" style="min-height: 250px;"></div>
+          </div>
+        </section>
+
+        <section class="mega-grid-middle" style="margin-top: 25px;">
+          
+          <div class="card premium-card master-card hover-float">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-               <h2 style="margin: 0; font-size: 1.5em;">🤖 AI Signal Radar</h2>
-               <button @click="openGlobalSettingsModal" class="btn-global-settings">
-                  ⚙️ GLOBAL SETTINGS
-               </button>
+              <h2 class="card-title" style="color: #fbbf24; margin: 0; border: none;">⚡ Master Switches</h2>
+              <button @click="saveMasterConfig" class="btn-save-master">💾 SAVE</button>
             </div>
-            
-            <div style="margin-bottom: 20px; color: #8b949e; font-size: 0.9em; display: flex; align-items: center; gap: 10px;">
-                <span>Active Symbols:</span>
-                <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-                   <span v-for="sym in activeSymbolList" :key="sym" class="mini-tag">{{ sym }}</span>
-                   <span v-if="activeSymbolList.length === 0">None</span>
-                </div>
+            <div class="toggles-grid">
+              <div class="toggle-box">
+                <span class="toggle-text">🌊 Endless Trailing</span>
+                <label class="switch"><input type="checkbox" v-model="masterConfig.ENDLESS_TRAILING_MODE"><span class="slider round"></span></label>
+              </div>
+              <div class="toggle-box">
+                <span class="toggle-text">⚡ Quick Scalp</span>
+                <label class="switch"><input type="checkbox" v-model="masterConfig.QUICK_SCALP_MODE"><span class="slider round"></span></label>
+              </div>
             </div>
-            
+            <div class="inputs-grid" style="margin-top: 15px;">
+              <div class="input-group"><label>Quick Target ($)</label><input type="number" v-model.number="masterConfig.QUICK_PROFIT_TARGET" class="premium-input"></div>
+              <div class="input-group"><label>Daily Target ($)</label><input type="number" v-model.number="masterConfig.DAILY_PROFIT_TARGET" class="premium-input text-profit"></div>
+              <div class="input-group"><label>Daily Loss ($)</label><input type="number" v-model.number="masterConfig.DAILY_LOSS_LIMIT" class="premium-input text-loss"></div>
+              <div class="input-group"><label>Max Loss/Trade ($)</label><input type="number" v-model.number="masterConfig.MAX_ALLOWED_LOSS_USD" class="premium-input text-warning"></div>
+            </div>
+          </div>
+
+          <div class="card premium-card radar-card hover-float">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+               <h2 class="card-title" style="margin: 0; border: none;">🤖 AI Signal Radar</h2>
+               <button @click="openGlobalSettingsModal" class="btn-global-settings pulse-hover">⚙️ GLOBAL SETTINGS</button>
+            </div>
             <div class="signal-grid">
-              <div v-for="(data, sym) in displaySignals" :key="sym" class="signal-box">                
+              <div v-for="(data, sym) in displaySignals" :key="sym" class="signal-box glass-panel">                
                 <div class="signal-header">
                   <div style="display: flex; align-items: center; gap: 8px;">
-                      <button @click="openSymbolSettingsModal(sym)" class="btn-icon-settings" title="Per-Symbol Settings">⚙️</button>
+                      <button @click="openSymbolSettingsModal(sym)" class="btn-icon-settings">⚙️</button>
                       <span class="symbol-text">{{ sym }}</span>
                   </div>
-                  <span class="signal-badge" :class="(data.signal || 'offline').toLowerCase().split(' ')[0]">{{ data.signal }}</span>
+                  <span class="signal-badge" :class="(data.signal || 'offline').toLowerCase().split(' ')[0]">
+                    {{ data.signal }}
+                  </span>
                 </div>
                 
-                <div class="signal-regime">
-                  {{ data.regime || 'WAITING FOR DATA...' }}
-                </div>
+                <div class="signal-regime">{{ data.regime || 'WAITING FOR DATA...' }}</div>
                 
                 <div class="signal-bar-container">
                   <div class="signal-bar buy" :style="{ width: data.buy_prob + '%' }"></div>
@@ -88,135 +122,131 @@
                   <span class="buy-text">B: {{ (data.buy_prob || 0).toFixed(1) }}%</span>
                   <span class="sell-text">S: {{ (data.sell_prob || 0).toFixed(1) }}%</span>
                 </div>
+
+                <div class="signal-indicators">
+                  <span title="RSI">RSI: <strong :style="{ color: data.rsi > 50 ? '#10b981' : (data.rsi < 50 ? '#ef4444' : '#a1a1aa') }">{{ data.rsi !== undefined ? data.rsi.toFixed(1) : '--' }}</strong></span>
+                  <span title="MACD">MACD: <strong :style="{ color: data.macd > 0 ? '#10b981' : (data.macd < 0 ? '#ef4444' : '#a1a1aa') }">{{ data.macd !== undefined ? data.macd.toFixed(2) : '--' }}</strong></span>
+                  <span title="EMA">EMA: <strong style="color: #fbbf24;">{{ data.ema50 !== undefined ? data.ema50.toFixed(2) : '--' }}</strong></span>
+                </div>
               </div>
             </div>
-          </section>
-        </main>
+          </div>
+        </section>
 
-        <section class="card history-section">
+        <section class="card premium-card history-section hover-float" style="margin-top: 25px;">
           <div class="history-header">
-            <h2>📜 Live Trade History</h2>
+            <h2 class="card-title" style="margin: 0; border: none;">📜 Live Trade History</h2>
             <button @click="fetchTradeHistory" class="btn-refresh">🔄 Refresh</button>
           </div>
-
           <div class="table-container">
             <table class="premium-table">
-              <thead>
-                <tr>
-                  <th>Ticket ID</th>
-                  <th>Time</th>
-                  <th>Symbol</th>
-                  <th>Type</th>
-                  <th>Entry Price</th>
-                  <th>Status</th>
-                  <th>Profit / Loss</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Ticket ID</th><th>Time</th><th>Symbol</th><th>Type</th><th>Entry Price</th><th>Status</th><th>Profit / Loss</th></tr></thead>
               <tbody>
-                <tr v-if="tradeHistory.length === 0">
-                  <td colspan="7" class="text-center">Waiting for AI to execute trades...</td>
-                </tr>
+                <tr v-if="tradeHistory.length === 0"><td colspan="7" class="text-center">Waiting for AI to execute trades...</td></tr>
                 <tr v-for="trade in tradeHistory" :key="trade.ticket_id">
-                  <td>#{{ trade.ticket_id }}</td>
-                  <td class="time-col">{{ trade.timestamp }}</td>
-                  <td class="font-bold">{{ trade.symbol }}</td>
-                  <td>
-                    <span :class="['badge-type', trade.type.toLowerCase()]">
-                      {{ trade.type.toUpperCase() }}
-                    </span>
-                  </td>
+                  <td>#{{ trade.ticket_id }}</td><td class="time-col">{{ trade.timestamp }}</td><td class="font-bold">{{ trade.symbol }}</td>
+                  <td><span :class="['badge-type', trade.type.toLowerCase()]">{{ trade.type.toUpperCase() }}</span></td>
                   <td>{{ Number(trade.entry_price).toFixed(5) }}</td>
-                  <td>
-                    <span :class="['badge-status', trade.status.toLowerCase()]">
-                      {{ trade.status }}
-                    </span>
-                  </td>
-                  <td :class="getProfitClass(trade.profit)">
-                    <strong>{{ formatProfit(trade.profit) }}</strong>
-                  </td>
+                  <td><span :class="['badge-status', trade.status.toLowerCase()]">{{ trade.status }}</span></td>
+                  <td :class="getProfitClass(trade.profit)"><strong>{{ formatProfit(trade.profit) }}</strong></td>
                 </tr>
               </tbody>
             </table>
           </div>
         </section>
+
       </div>
 
-      <div v-else-if="currentView === 'backtest'">
-        <section class="card" style="margin-bottom: 25px;">
-            <h2 style="color: #d2a8ff; border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-top: 0;">🧪 Quant Research Laboratory</h2>
-            <p style="color: #8b949e; font-size: 0.9em;">จำลองการทำงานของบอทด้วยการตั้งค่าปัจจุบัน (หากเปิดโหมด Auto-Tune บอทจะปรับค่าเองตามสภาวะตลาด)</p>
-            
-            <div class="backtest-controls" style="display: flex; gap: 15px; margin-top: 20px; align-items: flex-end; flex-wrap: wrap;">
-                <div style="flex: 1; min-width: 200px;">
-                    <label style="font-size: 0.85em; color: #8b949e; font-weight: bold;">💱 เลือกเหรียญ (Symbol)</label>
-                    <select v-model="btForm.symbol" class="symbol-input" style="padding: 12px; margin-top: 8px; cursor: pointer;">
-                        <option v-for="sym in activeSymbolList" :key="sym" :value="sym">{{ sym }}</option>
-                    </select>
-                </div>
-                <div style="flex: 1; min-width: 200px;">
-                    <label style="font-size: 0.85em; color: #8b949e; font-weight: bold;">📊 จำนวนแท่งย้อนหลัง (M15)</label>
-                    <select v-model="btForm.bars" class="symbol-input" style="padding: 12px; margin-top: 8px; cursor: pointer;">
-                        <option value="1000">1,000 แท่ง (~10 วัน)</option>
-                        <option value="5000">5,000 แท่ง (~1.5 เดือน)</option>
-                        <option value="10000">10,000 แท่ง (~3 เดือน)</option>
-                    </select>
-                </div>
-                <button @click="runFullBacktest" :disabled="isBacktesting" class="btn-backtest-run" style="width: 250px;">
-                    <span v-if="!isBacktesting">🚀 RUN SIMULATION</span>
-                    <span v-else>⏳ กำลังประมวลผล...</span>
-                </button>
+      <div v-show="currentView === 'backtest'" class="fade-in">
+      <div v-show="currentView === 'backtest'" class="fade-in">
+        
+        <section class="card premium-card hover-float" style="margin-bottom: 25px;">
+          <h2 class="card-title" style="color: #d2a8ff; border-color: #30363d;">
+            🧪 Quant Research Laboratory
+          </h2>
+          <p style="color: #8b949e; font-size: 0.9em; margin-top: -10px; margin-bottom: 20px;">
+            ระบบจำลองการเทรดด้วย AI (Backtest) ข้อมูลจะอ้างอิงจาก Master Switches ที่คุณเพิ่งบันทึกไป
+          </p>
+
+          <div class="backtest-controls">
+            <div class="input-group">
+              <label>💱 เลือกเหรียญ (Symbol)</label>
+              <select v-model="btForm.symbol" class="premium-input select-styled">
+                <option v-for="sym in activeSymbolList" :key="sym" :value="sym">{{ sym }}</option>
+              </select>
             </div>
+            <div class="input-group">
+              <label>📊 จำนวนแท่งย้อนหลัง (M15)</label>
+              <select v-model="btForm.bars" class="premium-input select-styled">
+                <option value="1000">1,000 แท่ง (~10 วัน)</option>
+                <option value="5000">5,000 แท่ง (~1.5 เดือน)</option>
+                <option value="10000">10,000 แท่ง (~3 เดือน)</option>
+              </select>
+            </div>
+            <button @click="runFullBacktest" :disabled="isBacktesting" class="btn-backtest-run">
+              <span v-if="!isBacktesting">🚀 RUN SIMULATION</span>
+              <span v-else class="pulse-slow">⏳ COMPUTING...</span>
+            </button>
+          </div>
         </section>
 
-        <div v-if="btResult" class="grid-layout" style="animation: modalFadeIn 0.3s;">
-            <div class="card" style="text-align: center; border-top: 4px solid #3fb950;">
-                <h3 style="color: #8b949e; margin-top: 0;">Net Profit</h3>
-                <h1 :class="btResult.net_profit >= 0 ? 'text-profit' : 'text-loss'" style="font-size: 2.8em; margin: 10px 0;">
-                    {{ btResult.net_profit >= 0 ? '+' : '' }}${{ btResult.net_profit }}
-                </h1>
-                <p style="color: #8b949e; font-size: 1.1em;">Final Balance: <strong>${{ btResult.final_balance }}</strong></p>
-            </div>
-            
-            <div class="card" style="text-align: center; border-top: 4px solid #58a6ff;">
-                <h3 style="color: #8b949e; margin-top: 0;">Win Rate</h3>
-                <h1 style="color: #58a6ff; font-size: 2.8em; margin: 10px 0;">{{ btResult.win_rate }}%</h1>
-                <p style="color: #8b949e; font-size: 1.1em;">ชนะ {{ btResult.win_trades }} | แพ้ {{ btResult.loss_trades }} | เสมอ {{ btResult.be_trades }}</p>
-            </div>
+        <div v-if="btResult" class="mega-grid-results slide-up">
+          <div class="card premium-card result-box" style="border-top: 4px solid #3fb950;">
+            <h3>Net Profit</h3>
+            <h1 :class="btResult.net_profit >= 0 ? 'text-profit' : 'text-loss'">
+              {{ btResult.net_profit >= 0 ? '+' : '' }}${{ btResult.net_profit }}
+            </h1>
+            <p>Final Balance: <strong>${{ btResult.final_balance }}</strong></p>
+          </div>
 
-            <div class="card" style="text-align: center; border-top: 4px solid #f85149;">
-                <h3 style="color: #8b949e; margin-top: 0;">Max Drawdown</h3>
-                <h1 style="color: #f85149; font-size: 2.8em; margin: 10px 0;">{{ btResult.mdd }}%</h1>
-                <p style="color: #8b949e; font-size: 1.1em;">ความเสี่ยงสูงสุดที่พอร์ตหดตัว</p>
+          <div class="card premium-card result-box" style="border-top: 4px solid #58a6ff;">
+            <h3>Win Rate</h3>
+            <h1 style="color: #58a6ff;">{{ btResult.win_rate }}%</h1>
+            <p>ชนะ {{ btResult.win_trades }} | แพ้ {{ btResult.loss_trades }} | เสมอ {{ btResult.be_trades }}</p>
+          </div>
+
+          <div class="card premium-card result-box" style="border-top: 4px solid #f85149;">
+            <h3>Max Drawdown</h3>
+            <h1 style="color: #f85149;">{{ btResult.mdd }}%</h1>
+            <p>ความเสี่ยงพอร์ตหดตัวสูงสุด</p>
+          </div>
+
+          <div v-if="btResult.config" class="card premium-card config-summary full-width">
+            <h4 style="margin-top: 0; color: #8b949e; border-bottom: 1px solid #30363d; padding-bottom: 10px;">
+              ⚙️ Parameters Used (สูตรที่ใช้ทดสอบ)
+            </h4>
+            <div class="config-badges">
+              <span class="badge" :class="btResult.config.auto_tune ? 'active' : ''">
+                🤖 Auto-Tune: {{ btResult.config.auto_tune ? 'ON (Dynamic)' : 'OFF (Manual)' }}
+              </span>
+              <span class="badge" :class="btResult.config.endless_trailing ? 'active-blue' : ''">
+                🌊 Endless Trailing: {{ btResult.config.endless_trailing ? 'ON' : 'OFF' }}
+              </span>
+              <span class="badge" :class="btResult.config.quick_scalp ? 'active-purple' : ''">
+                ⚡ Quick Scalp: {{ btResult.config.quick_scalp ? 'ON' : 'OFF' }}
+              </span>
             </div>
-            <div v-if="btResult && btResult.config" class="card" style="margin-top: 20px; padding: 15px; background: #010409; animation: modalFadeIn 0.4s; grid-column: 1 / -1;">
-              <h4 style="color: #8b949e; margin-top: 0; margin-bottom: 12px; border-bottom: 1px solid #30363d; padding-bottom: 8px;">
-                  ⚙️ Parameters Used (สูตรที่ใช้ทดสอบ)
-              </h4>
-              <div style="display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.9em;">
-                  <span class="config-badge" :class="btResult.config.auto_tune ? 'active' : ''">
-                      🤖 Auto-Tune: {{ btResult.config.auto_tune ? 'ON (Dynamic Mode)' : 'OFF (Manual Mode)' }}
-                  </span>
-                  <span class="config-badge">🎯 Confidence: {{ btResult.config.auto_tune ? 'Auto' : btResult.config.confidence + '%' }}</span>
-                  <span class="config-badge">🚀 R:R Ratio: {{ btResult.config.auto_tune ? 'Auto' : '1:' + btResult.config.rr_ratio }}</span>
-                  <span class="config-badge">🛡️ SL ATR: {{ btResult.config.auto_tune ? 'Auto' : 'x' + btResult.config.atr_sl }}</span>
-                  <span class="config-badge">🔒 Break-Even: {{ btResult.config.auto_tune ? 'Auto' : 'x' + btResult.config.break_even }}</span>
-              </div>
           </div>
         </div>
         
-        <div v-if="!btResult && !isBacktesting" style="text-align: center; color: #8b949e; padding: 50px; border: 1px dashed #30363d; border-radius: 12px; margin-top: 20px;">
-            🧪 กดปุ่ม RUN SIMULATION เพื่อเริ่มต้นการจำลองระบบ
+        <div v-if="!btResult && !isBacktesting" class="waiting-box">
+          🧪 กดปุ่ม RUN SIMULATION ด้านบนเพื่อเริ่มต้นสกัดข้อมูลและทดสอบสมองกล
         </div>
       </div>
-
-      <div v-if="showSymbolModal" class="modal-overlay" @click.self="closeSymbolModal">
-        <div class="modal-box">
-          <h3 class="modal-title">⚙️ Settings: <span class="text-glow" style="color:#f0b37e;">{{ currentEditSymbol }}</span></h3>
+          </div>
+          <div v-if="showSymbolModal" class="modal-overlay fade-in" @click.self="closeSymbolModal">
+        <div class="modal-box glass-panel slide-up">
+          <div class="modal-header">
+            <h3 class="modal-title" style="margin: 0; border: none;">
+              ⚙️ <span class="text-glow" style="color:#f0b37e;">{{ currentEditSymbol }}</span> Settings
+            </h3>
+            <button @click="closeSymbolModal" class="btn-close-modal">✕</button>
+          </div>
           
-          <div style="background: rgba(88,166,255,0.1); border: 1px solid #58a6ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+          <div class="auto-tune-toggle-box">
              <div>
-                <strong style="color: #58a6ff;">🤖 AI Auto-Tune Mode</strong>
-                <p style="margin: 5px 0 0 0; font-size: 0.8em; color: #8b949e;">ให้ AI ปรับค่าตามสภาวะตลาดอัตโนมัติ</p>
+                <strong style="color: #58a6ff; font-size: 1.1em;">🤖 AI Auto-Tune</strong>
+                <p style="margin: 5px 0 0 0; font-size: 0.8em; color: #8b949e;">ปรับเกียร์ตามสภาวะตลาดอัตโนมัติ</p>
              </div>
              <label class="switch">
                 <input type="checkbox" v-model="tempSettings.auto_tune">
@@ -224,150 +254,106 @@
              </label>
           </div>
 
-          <div v-if="tempSettings.auto_tune" class="auto-tune-container">
+          <div v-if="tempSettings.auto_tune" class="auto-tune-container slide-fade">
               <div class="mini-tabs">
-                  <button @click="activeAutoTuneTab = 'trend'" :class="['mini-tab-btn', { active: activeAutoTuneTab === 'trend' }]">
-                      📈 Trend Rule
-                  </button>
-                  <button @click="activeAutoTuneTab = 'volatility'" :class="['mini-tab-btn', { active: activeAutoTuneTab === 'volatility' }]">
-                      🌊 Volatility Rule
-                  </button>
+                  <button @click="activeAutoTuneTab = 'trend'" :class="['mini-tab-btn', { active: activeAutoTuneTab === 'trend' }]">📈 Trend Rule</button>
+                  <button @click="activeAutoTuneTab = 'volatility'" :class="['mini-tab-btn', { active: activeAutoTuneTab === 'volatility' }]">🌊 Volatility Rule</button>
               </div>
 
               <div v-if="activeAutoTuneTab === 'trend'" class="tab-content fade-in">
-                  <p style="font-size: 0.75em; color: #58a6ff; margin-top: 0; margin-bottom: 12px; text-align: center;">
-                      🎯 ปรับความแม่น (Conf) และเป้ากำไร (R:R) ตามสภาพตลาด
-                  </p>
-                  <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                      <div style="flex:1"><label class="input-label">Strong Trend Conf.</label><input type="number" v-model="tempSettings.at_trend_strong_conf" class="symbol-input mini-input"></div>
-                      <div style="flex:1"><label class="input-label">Strong Trend R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_strong_rr" class="symbol-input mini-input"></div>
-                  </div>
-                  <div style="display: flex; gap: 10px;">
-                      <div style="flex:1"><label class="input-label">Weak/Sideway Conf.</label><input type="number" v-model="tempSettings.at_trend_weak_conf" class="symbol-input mini-input"></div>
-                      <div style="flex:1"><label class="input-label">Weak/Sideway R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_weak_rr" class="symbol-input mini-input"></div>
+                  <p class="tab-desc text-blue">🎯 ปรับความแม่น (Conf) และเป้ากำไร (R:R)</p>
+                  <div class="inputs-grid" style="margin-bottom: 10px;">
+                      <div class="input-group"><label>Strong Trend Conf.</label><input type="number" v-model="tempSettings.at_trend_strong_conf" class="premium-input mini-input"></div>
+                      <div class="input-group"><label>Strong Trend R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_strong_rr" class="premium-input mini-input text-profit"></div>
+                      <div class="input-group"><label>Weak/Sideway Conf.</label><input type="number" v-model="tempSettings.at_trend_weak_conf" class="premium-input mini-input"></div>
+                      <div class="input-group"><label>Weak/Sideway R:R</label><input type="number" step="0.1" v-model="tempSettings.at_trend_weak_rr" class="premium-input mini-input text-warning"></div>
                   </div>
               </div>
 
               <div v-if="activeAutoTuneTab === 'volatility'" class="tab-content fade-in">
-                  <p style="font-size: 0.75em; color: #f85149; margin-top: 0; margin-bottom: 12px; text-align: center;">
-                      🛡️ ปรับระยะหลบภัย (SL) และการเลื่อนบังทุน (Break-Even)
-                  </p>
-                  <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                      <div style="flex:1"><label class="input-label">High Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_atr_sl" class="symbol-input mini-input"></div>
-                      <div style="flex:1"><label class="input-label">High Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_be" class="symbol-input mini-input"></div>
-                  </div>
-                  <div style="display: flex; gap: 10px;">
-                      <div style="flex:1"><label class="input-label">Low Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_atr_sl" class="symbol-input mini-input"></div>
-                      <div style="flex:1"><label class="input-label">Low Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_be" class="symbol-input mini-input"></div>
+                  <p class="tab-desc text-loss">🛡️ ปรับระยะหลบภัย (SL) และบังหน้าทุน (BE)</p>
+                  <div class="inputs-grid">
+                      <div class="input-group"><label>High Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_atr_sl" class="premium-input mini-input text-loss"></div>
+                      <div class="input-group"><label>High Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_high_be" class="premium-input mini-input text-blue"></div>
+                      <div class="input-group"><label>Low Vol. SL ATR</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_atr_sl" class="premium-input mini-input text-warning"></div>
+                      <div class="input-group"><label>Low Vol. Break-Even</label><input type="number" step="0.1" v-model="tempSettings.at_vol_low_be" class="premium-input mini-input text-blue"></div>
                   </div>
               </div>
           </div>
 
-          <div v-show="!tempSettings.auto_tune" class="setting-group">
-              <div class="confidence-header">
-                  <span class="confidence-title">🤖 Target Confidence</span>
-                  <span class="confidence-value text-green">{{ Number(tempSettings.confidence).toFixed(1) }}%</span>
+          <div v-show="!tempSettings.auto_tune" class="manual-settings-container slide-fade">
+              <div class="setting-group">
+                  <div class="confidence-header"><span class="confidence-title">🤖 Target Confidence</span><span class="confidence-value text-profit">{{ Number(tempSettings.confidence).toFixed(1) }}%</span></div>
+                  <input type="range" min="30.0" max="80.0" step="0.5" v-model="tempSettings.confidence" class="premium-slider slider-green" />
               </div>
-              <input type="range" min="50.0" max="80.0" step="0.5" v-model="tempSettings.confidence" class="confidence-slider" />
+              <div class="setting-group">
+                  <div class="confidence-header"><span class="confidence-title">💰 Risk Per Trade</span><span class="confidence-value text-purple">{{ tempSettings.risk_percent }}%</span></div>
+                  <input type="range" min="0.1" max="5.0" step="0.1" v-model="tempSettings.risk_percent" class="premium-slider slider-purple" />
+              </div>
+              <div class="setting-group">
+                  <div class="confidence-header"><span class="confidence-title">🛡️ SL ATR Distance</span><span class="confidence-value text-loss">x{{ Number(tempSettings.atr_sl).toFixed(1) }}</span></div>
+                  <input type="range" min="0.1" max="5.0" step="0.1" v-model="tempSettings.atr_sl" class="premium-slider slider-red" />
+              </div>
+              <div class="setting-group">
+                  <div class="confidence-header"><span class="confidence-title">🚀 Take Profit (R:R)</span><span class="confidence-value text-blue">1:{{ Number(tempSettings.rr_ratio).toFixed(1) }}</span></div>
+                  <input type="range" min="0.5" max="5.0" step="0.1" v-model="tempSettings.rr_ratio" class="premium-slider slider-blue" />
+              </div>
+              <div class="setting-group">
+                  <div class="confidence-header"><span class="confidence-title">🔒 Break-Even ATR</span><span class="confidence-value text-warning">x{{ Number(tempSettings.break_even).toFixed(1) }}</span></div>
+                  <input type="range" min="0.5" max="3.0" step="0.1" v-model="tempSettings.break_even" class="premium-slider slider-orange" />
+              </div>
           </div>
-
-          <div class="setting-group">
+          <div class="setting-group" style="margin-top: 20px; border-top: 1px solid #30363d; padding-top: 15px;">
               <div class="confidence-header">
-                  <span class="confidence-title">💰 Risk Per Trade</span>
-                  <span class="confidence-value text-purple">{{ tempSettings.risk_percent }}%</span>
+                  <span class="confidence-title">⏱️ Trading Hours (เฉพาะเหรียญนี้)</span>
               </div>
-              <input type="range" min="0.1" max="5.0" step="0.1" v-model="tempSettings.risk_percent" class="confidence-slider risk-slider" />
-          </div>
-          
-          <div v-show="!tempSettings.auto_tune" class="setting-group">
-              <div class="confidence-header">
-                  <span class="confidence-title">🛡️ SL ATR Distance</span>
-                  <span class="confidence-value text-green">x{{ Number(tempSettings.atr_sl).toFixed(1) }}</span>
+              <div class="inputs-grid" style="margin-top: 10px;">
+                  <div class="input-group">
+                      <label>Start Time</label>
+                      <input type="time" v-model="tempSettings.trade_start_time" class="premium-input" />
+                  </div>
+                  <div class="input-group">
+                      <label>End Time</label>
+                      <input type="time" v-model="tempSettings.trade_end_time" class="premium-input" />
+                  </div>
               </div>
-              <input type="range" min="0.1" max="5.0" step="0.1" v-model="tempSettings.atr_sl" class="confidence-slider" style="accent-color: #f85149;" />
-          </div>
-
-          <div v-show="!tempSettings.auto_tune" class="setting-group">
-              <div class="confidence-header">
-                  <span class="confidence-title">🚀 Take Profit (R:R)</span>
-                  <span class="confidence-value text-green">1:{{ Number(tempSettings.rr_ratio).toFixed(1) }}</span>
-              </div>
-              <input type="range" min="1.0" max="5.0" step="0.1" v-model="tempSettings.rr_ratio" class="confidence-slider" style="accent-color: #58a6ff;" />
-          </div>
-
-          <div v-show="!tempSettings.auto_tune" class="setting-group">
-              <div class="confidence-header">
-                  <span class="confidence-title">🔒 Break-Even ATR</span>
-                  <span class="confidence-value text-green">x{{ Number(tempSettings.break_even).toFixed(1) }}</span>
-              </div>
-              <input type="range" min="1.0" max="3.0" step="0.1" v-model="tempSettings.break_even" class="confidence-slider" style="accent-color: #f0b37e;" />
           </div>
           
           <div class="modal-actions">
-            <button @click="saveSymbolSettings" class="btn-save">💾 SAVE</button>
-            <button @click="closeSymbolModal" class="btn-cancel">CANCEL</button>
+            <button @click="saveSymbolSettings" class="btn-save-modal">💾 SAVE SETTINGS</button>
           </div>
         </div>
       </div>
 
-      <div v-if="showGlobalModal" class="modal-overlay" @click.self="closeGlobalModal">
-        <div class="modal-box" style="max-width: 450px;">
-          <h3 class="modal-title" style="color: #58a6ff;">⚙️ Global AI Settings</h3>
+      <div v-if="showGlobalModal" class="modal-overlay fade-in" @click.self="closeGlobalModal">
+        <div class="modal-box glass-panel slide-up" style="max-width: 450px;">
+          <div class="modal-header">
+            <h3 class="modal-title" style="margin: 0; border: none; color: #58a6ff;">💱 Manage Active Symbols</h3>
+            <button @click="closeGlobalModal" class="btn-close-modal">✕</button>
+          </div>
+
+          <p style="color: #8b949e; font-size: 0.9em; margin-top: 0; margin-bottom: 20px;">
+            เพิ่มหรือลบเหรียญที่ต้องการให้ AI เฝ้าระวัง (ระบบจะเริ่มสแกนเหรียญใหม่ทันทีเมื่อกดบันทึก)
+          </p>
 
           <div class="setting-group">
-              <div class="confidence-header">
-                  <span class="confidence-title">🤖 Default AI Confidence</span>
-                  <span class="confidence-value text-green">{{ Number(formSettings.confidence).toFixed(1) }}%</span>
-              </div>
-              <input type="range" min="50.0" max="80.0" step="0.5" v-model="formSettings.confidence" class="confidence-slider" />
-          </div>
-
-          <div class="setting-group">
-              <div class="confidence-header">
-                  <span class="confidence-title">💰 Default Risk Per Trade (%)</span>
-                  <span class="confidence-value text-purple">{{ formSettings.risk_percent }}%</span>
-              </div>
-              <input type="range" min="0.1" max="5.0" step="0.1" v-model="formSettings.risk_percent" class="confidence-slider risk-slider" />
-          </div>
-
-          <div class="setting-group" style="margin-top: 20px;">
-              <div class="confidence-header">
-                  <span class="confidence-title">⏱️ Session Trading Time</span>
-              </div>
-              <div style="display: flex; gap: 15px; margin-top: 10px;">
-                  <div style="flex: 1;">
-                      <label style="font-size: 0.8em; color: #8b949e;">Start Time</label>
-                      <input type="time" v-model="formSettings.trade_start_time" class="symbol-input" style="padding: 10px; margin-top: 5px; cursor: pointer;" />
-                  </div>
-                  <div style="flex: 1;">
-                      <label style="font-size: 0.8em; color: #8b949e;">End Time</label>
-                      <input type="time" v-model="formSettings.trade_end_time" class="symbol-input" style="padding: 10px; margin-top: 5px; cursor: pointer;" />
-                  </div>
-              </div>
-          </div>
-
-          <div class="setting-group" style="margin-top: 25px;">
-              <div class="confidence-header">
-                  <span class="confidence-title">💱 Active Trading Symbols</span>
-              </div>
-              
-              <div class="symbol-tags" style="margin-top: 10px;">
+              <div class="symbol-tags">
                   <span v-for="(sym, index) in activeSymbolList" :key="index" class="symbol-tag">
-                      {{ sym }}
-                      <button @click.prevent="removeSymbol(sym)" class="btn-remove-sym">✕</button>
+                      {{ sym }} <button @click.prevent="removeSymbol(sym)" class="btn-remove-sym">✕</button>
                   </span>
                   <span v-if="activeSymbolList.length === 0" style="color: #8b949e; font-size: 0.9em;">(No active symbols)</span>
               </div>
-
-              <div class="add-symbol-wrapper" style="margin-top: 10px;">
-                  <input type="text" v-model="newSymbol" class="symbol-input" placeholder="e.g. ETHUSDm" @keyup.enter="addSymbol" />
+              
+              <div class="add-symbol-wrapper" style="margin-top: 20px; display: flex; gap: 10px;">
+                  <input type="text" v-model="newSymbol" class="premium-input" placeholder="พิมพ์ชื่อเหรียญ เช่น ETHUSDm" @keyup.enter="addSymbol" style="flex: 1;" />
                   <button @click.prevent="addSymbol" class="btn-add-sym">➕ ADD</button>
               </div>
           </div>
           
-          <div class="modal-actions" style="margin-top: 35px;">
-            <button @click="handleSaveGlobalSettings" class="btn-save" style="background: #2ea043;">💾 APPLY SETTINGS</button>
-            <button @click="closeGlobalModal" class="btn-cancel">CLOSE</button>
+          <div class="modal-actions" style="margin-top: 30px;">
+            <button @click="handleSaveGlobalSettings" class="btn-save-modal" style="background: linear-gradient(180deg, #2ea043 0%, #238636 100%);">
+              💾 APPLY TO SYSTEM
+            </button>
           </div>
         </div>
       </div>
@@ -375,9 +361,9 @@
     </div>
   </div>
 </template>
-
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import ApexCharts from 'apexcharts'; // 🌟 โหลดอาวุธลับสำหรับวาดกราฟ
 
 const isAuthenticated = ref(!!localStorage.getItem('access_token'));
 const loginForm = ref({ username: '', password: '' });
@@ -393,6 +379,10 @@ const isRunning = ref(false);
 const account = ref({ balance: 0, equity: 0 });
 const botData = ref({ current_symbol: '-', last_signal: 'HOLD', profit_today: 0, live_signals: {} });
 const tradeHistory = ref([]);
+
+// 🌟 ตัวแปรสำหรับจัดการกราฟ Equity
+let equityChart = null;
+const balanceHistory = ref([]); 
 
 const formSettings = ref({
     confidence: 54.0,
@@ -416,6 +406,48 @@ const tempSettings = ref({
     at_trend_strong_conf: 60.0, at_trend_strong_rr: 2.0, at_trend_weak_conf: 65.0, at_trend_weak_rr: 1.2,
     at_vol_high_atr_sl: 3.0, at_vol_high_be: 2.5, at_vol_low_atr_sl: 2.0, at_vol_low_be: 1.5
 });
+
+// ==========================================
+// ⚡ Master Switches Logic (โหมดเทพ)
+// ==========================================
+const masterConfig = ref({
+    ENDLESS_TRAILING_MODE: true,
+    QUICK_SCALP_MODE: false,
+    QUICK_PROFIT_TARGET: 5.0,
+    DAILY_PROFIT_TARGET: 50.0,
+    DAILY_LOSS_LIMIT: -30.0,
+    MAX_TOTAL_POSITIONS: 3,
+    MAX_ALLOWED_LOSS_USD: 30.0
+});
+
+const fetchMasterConfig = async () => {
+    try {
+        const res = await fetch(`${API_URL}/api/master-settings`);
+        if (res.ok) {
+            const data = await res.json();
+            masterConfig.value = data;
+        }
+    } catch (e) {
+        console.error("Failed to load master settings", e);
+    }
+};
+
+const saveMasterConfig = async () => {
+    try {
+        const res = await fetch(`${API_URL}/api/master-settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(masterConfig.value)
+        });
+        if (res.ok) {
+            alert("✅ บันทึก Master Settings สำเร็จ! สมองกลรับทราบคำสั่งแล้ว!");
+        } else {
+            alert("❌ บันทึกข้อมูลไม่สำเร็จ");
+        }
+    } catch (e) {
+        alert("❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้");
+    }
+};
 
 const activeAutoTuneTab = ref('trend');
 
@@ -539,6 +571,7 @@ const handleLogout = () => {
   localStorage.removeItem('access_token');
   isAuthenticated.value = false;
   if (ws.value) ws.value.close();
+  if (equityChart) equityChart.destroy();
 };
 
 const fetchTradeHistory = async () => {
@@ -579,6 +612,8 @@ const fetchSettings = async () => {
 
 const handleSaveGlobalSettings = async () => {
     try {
+        // 🌟 ส่งค่าทั้งหมดกลับไปให้ API เหมือนเดิม เพื่อไม่ให้ฝั่ง Database พัง 
+        // แต่บนหน้าเว็บเราปรับแค่ symbols อย่างเดียว
         const payload = {
             confidence: parseFloat(formSettings.value.confidence),
             risk_percent: parseFloat(formSettings.value.risk_percent),
@@ -592,7 +627,7 @@ const handleSaveGlobalSettings = async () => {
             body: JSON.stringify(payload)
         });
         if (res.ok) {
-            alert(`✅ บันทึกการตั้งค่าเวลาและรายชื่อเหรียญเรียบร้อย!\nเวลาเทรด: ${payload.trade_start_time} - ${payload.trade_end_time}`);
+            alert(`✅ อัปเดตรายชื่อเหรียญ Active Symbols เรียบร้อยแล้ว!`);
             closeGlobalModal(); 
         } else {
             alert("❌ บันทึกข้อมูลไม่สำเร็จ");
@@ -622,7 +657,9 @@ const openSymbolSettingsModal = async (sym) => {
            at_vol_high_atr_sl: data.at_vol_high_atr_sl || 3.0,
            at_vol_high_be: data.at_vol_high_be || 2.5,
            at_vol_low_atr_sl: data.at_vol_low_atr_sl || 2.0,
-           at_vol_low_be: data.at_vol_low_be || 1.5
+           at_vol_low_be: data.at_vol_low_be || 1.5,
+           trade_start_time: data.trade_start_time || "00:00",
+           trade_end_time: data.trade_end_time || "23:59"
        };
     }
   } catch(e) { console.error("Error fetching symbol settings", e); }
@@ -649,6 +686,48 @@ const saveSymbolSettings = async () => {
   }
 };
 
+// ==========================================
+// 📈 ระบบกราฟ ApexCharts (Live Equity)
+// ==========================================
+const initApexChart = () => {
+    if (equityChart) return; 
+    const options = {
+        series: [{ name: 'Balance', data: [] }],
+        chart: { 
+            type: 'area', height: 280, background: 'transparent', 
+            toolbar: { show: false }, 
+            animations: { enabled: true, easing: 'linear', dynamicAnimation: { speed: 1000 } } 
+        },
+        colors: ['#58a6ff'],
+        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05, stops: [0, 100] } },
+        dataLabels: { enabled: false },
+        stroke: { curve: 'smooth', width: 3 },
+        xaxis: { type: 'datetime', labels: { style: { colors: '#8b949e' } }, axisBorder: { show: false }, axisTicks: { show: false } },
+        yaxis: { labels: { style: { colors: '#8b949e' }, formatter: (value) => { return "$" + value.toFixed(2) } } },
+        grid: { borderColor: '#30363d', strokeDashArray: 4, yaxis: { lines: { show: true } } },
+        theme: { mode: 'dark' }
+    };
+    
+    const chartElement = document.querySelector("#equity-chart");
+    if (chartElement) {
+        equityChart = new ApexCharts(chartElement, options);
+        equityChart.render();
+    }
+};
+
+const updateChartData = () => {
+    if (!equityChart || account.value.balance === 0) return;
+    const now = new Date().getTime();
+    balanceHistory.value.push([now, account.value.balance]);
+    
+    // เก็บประวัติแค่ 50 จุดล่าสุดให้กราฟวิ่งสวยๆ ไม่กินแรม
+    if (balanceHistory.value.length > 50) balanceHistory.value.shift(); 
+    equityChart.updateSeries([{ data: balanceHistory.value }]);
+};
+
+// ==========================================
+// 🔌 WebSocket & App Init
+// ==========================================
 const connectWebSocket = () => {
   ws.value = new WebSocket(WS_URL);
   ws.value.onopen = () => { isConnected.value = true; };
@@ -657,6 +736,9 @@ const connectWebSocket = () => {
     isRunning.value = data.bot.is_running;
     botData.value = data.bot;
     account.value = data.account;
+    
+    // 🌟 ให้กราฟอัปเดตทุกครั้งที่ข้อมูลใหม่มา
+    updateChartData(); 
   };
   ws.value.onclose = () => {
     isConnected.value = false;
@@ -670,12 +752,25 @@ const toggleBot = (action) => {
   }
 };
 
-const initDashboard = () => {
+// เปลี่ยนเป็น async เพื่อใช้ nextTick รอให้ HTML วาดเสร็จก่อนแปะกราฟ
+const initDashboard = async () => {
   fetchTradeHistory();
-  fetchSettings(); 
+  fetchSettings();
+  fetchMasterConfig(); 
   connectWebSocket();
   setInterval(fetchTradeHistory, 10000); 
+
+  await nextTick();
+  if (currentView.value === 'dashboard') initApexChart();
 };
+
+// 🌟 สลับแท็บแล้ววาดกราฟใหม่
+watch(currentView, async (newView) => {
+    if (newView === 'dashboard') {
+        await nextTick();
+        initApexChart();
+    }
+});
 
 onMounted(() => {
   if (isAuthenticated.value) {
@@ -685,138 +780,170 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (ws.value) ws.value.close();
+  if (equityChart) equityChart.destroy(); // ล้างกราฟคืน Memory
 });
 </script>
 
 <style scoped>
 /* ==========================================
-   🎨 สไตล์ CSS ระดับ Institutional
+   🌐 1. Base & Global Styles (สไตล์พื้นฐาน)
    ========================================== */
 :global(html), :global(body), :global(#app) { 
-  margin: 0; padding: 0; width: 100%; min-height: 100vh; 
-  background-color: #0d1117; color: #c9d1d9; 
-  font-family: 'Segoe UI', system-ui, sans-serif; overflow-x: hidden; 
+  margin: 0; padding: 0; width: 100%; min-height: 100vh;
+  background-color: #010409; /* พื้นหลังเข้มสุด สไตล์ Terminal */
+  color: #c9d1d9; 
+  font-family: 'Segoe UI', system-ui, sans-serif; 
+  overflow-x: hidden; 
 }
+
+/* ==========================================
+   🌀 2. Animations & Effects (แอนิเมชัน)
+   ========================================== */
+.slide-fade { animation: slideFade 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+.slide-up { animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+.fade-in { animation: fadeIn 0.4s ease-in-out; }
+.pulse-slow { animation: pulseGlow 3s infinite; }
+.pulse-hover:hover { animation: pulseGlow 1.5s infinite; }
+.hover-float { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+.hover-float:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgba(0,0,0,0.6); z-index: 10; }
+
+@keyframes slideFade { 
+  from { opacity: 0; transform: translateY(-20px) scale(0.98); } 
+  to { opacity: 1; transform: translateY(0) scale(1); } 
+}
+@keyframes slideUp { 
+  from { opacity: 0; transform: translateY(30px); } 
+  to { opacity: 1; transform: translateY(0); } 
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pulseGlow { 
+  0% { text-shadow: 0 0 10px rgba(88,166,255,0.4); box-shadow: 0 0 10px rgba(88,166,255,0.2); } 
+  50% { text-shadow: 0 0 25px rgba(88,166,255,0.8); box-shadow: 0 0 20px rgba(88,166,255,0.4); } 
+  100% { text-shadow: 0 0 10px rgba(88,166,255,0.4); box-shadow: 0 0 10px rgba(88,166,255,0.2); } 
+}
+
+/* ==========================================
+   🔒 3. Login Screen (หน้าล็อกอิน)
+   ========================================== */
 .login-wrapper { display: flex; justify-content: center; align-items: center; height: 100vh; padding: 20px; box-sizing: border-box; }
 .login-box { background: #161b22; padding: 40px; border-radius: 12px; border: 1px solid #30363d; text-align: center; width: 100%; max-width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); box-sizing: border-box; }
-.title-glow { color: #58a6ff; text-shadow: 0 0 10px rgba(88,166,255,0.4); margin-bottom: 5px; }
+.title-glow { color: #58a6ff; margin-bottom: 5px; font-size: 2em; }
 .subtitle { color: #8b949e; margin-bottom: 30px; font-size: 0.9em; letter-spacing: 1px; }
-.login-box input { width: 100%; padding: 14px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #30363d; background: #010409; color: white; box-sizing: border-box; outline: none; transition: 0.3s; }
-.login-box input:focus { border-color: #58a6ff; }
+.login-box input { width: 100%; padding: 14px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #30363d; background: #010409; color: white; box-sizing: border-box; outline: none; transition: 0.3s; font-size: 1em; }
+.login-box input:focus { border-color: #58a6ff; box-shadow: 0 0 8px rgba(88,166,255,0.3); }
 .btn-login { width: 100%; padding: 14px; background: linear-gradient(180deg, #2ea043 0%, #238636 100%); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; letter-spacing: 1px; }
 .btn-login:hover { filter: brightness(1.2); }
-.error-msg { color: #f85149; margin-top: 15px; font-size: 0.9em; }
+.error-msg { color: #f85149; margin-top: 15px; font-size: 0.9em; font-weight: bold; }
 
-.dashboard-container { padding: 30px; max-width: 1400px; margin: 0 auto; box-sizing: border-box; }
-.header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 15px; margin-bottom: 30px; }
-.version-tag { font-size: 0.4em; vertical-align: top; background: #e34c26; padding: 2px 6px; border-radius: 4px; color: white; }
-.header-actions { display: flex; align-items: center; gap: 15px; }
-.status-badge { padding: 6px 12px; border-radius: 6px; font-size: 0.85em; font-weight: bold; }
-.ws-connected { border: 1px solid #2ea043; color: #2ea043; background: rgba(46,160,67,0.1); }
-.ws-disconnected { border: 1px solid #f85149; color: #f85149; background: rgba(248,81,73,0.1); }
-.btn-logout { background: transparent; color: #8b949e; border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
-.btn-logout:hover { color: #f85149; border-color: #f85149; }
+/* ==========================================
+   🏢 4. Main Layout & Header (โครงสร้างหลัก)
+   ========================================== */
+.dashboard-container { padding: 20px 40px; max-width: 1600px; margin: 0 auto; box-sizing: border-box; }
+.glass-effect { background: rgba(1, 4, 9, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255,255,255,0.05); position: sticky; top: 0; z-index: 100; padding: 15px 30px; margin: -20px -40px 30px -40px; display: flex; justify-content: space-between; align-items: center; }
 
-.nav-tabs { display: flex; gap: 15px; margin-left: 30px; flex: 1; }
-.tab-btn { background: transparent; color: #8b949e; border: none; padding: 8px 15px; font-weight: bold; font-size: 1.05em; cursor: pointer; transition: 0.2s; border-bottom: 3px solid transparent; letter-spacing: 0.5px;}
+.header h1 { margin: 0; font-size: 1.5em; display: flex; align-items: center; gap: 10px; }
+.version-tag { font-size: 0.5em; background: #e34c26; padding: 3px 6px; border-radius: 4px; color: white; font-weight: bold; letter-spacing: 1px; }
+
+.nav-tabs { display: flex; gap: 10px; margin-left: 30px; flex: 1; }
+.tab-btn { background: transparent; color: #8b949e; border: none; padding: 8px 15px; font-weight: bold; font-size: 1em; cursor: pointer; transition: 0.2s; border-bottom: 3px solid transparent; letter-spacing: 0.5px;}
 .tab-btn:hover { color: #c9d1d9; }
-.tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; text-shadow: 0 0 10px rgba(88,166,255,0.4); }
+.tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; text-shadow: 0 0 10px rgba(88,166,255,0.5); }
 
-.btn-start-nav { background: linear-gradient(180deg, #2ea043 0%, #238636 100%); color: white; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; letter-spacing: 0.5px;}
-.btn-start-nav:hover { filter: brightness(1.2); box-shadow: 0 0 10px rgba(46,160,67,0.4); }
-.btn-stop-nav { background: linear-gradient(180deg, #f85149 0%, #da3633 100%); color: white; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; letter-spacing: 0.5px;}
-.btn-stop-nav:hover { filter: brightness(1.2); box-shadow: 0 0 10px rgba(248,81,73,0.4); }
+.header-actions { display: flex; align-items: center; gap: 15px; }
+.btn-start-nav { background: linear-gradient(180deg, #2ea043 0%, #238636 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(46,160,67,0.3); }
+.btn-start-nav:hover { filter: brightness(1.2); }
+.btn-stop-nav { background: linear-gradient(180deg, #f85149 0%, #da3633 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(248,81,73,0.3); }
+.btn-stop-nav:hover { filter: brightness(1.2); }
+.btn-panic { background: transparent; color: #f85149; border: 1px solid #f85149; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+.btn-panic:hover { background: rgba(248,81,73,0.1); box-shadow: 0 0 15px rgba(248,81,73,0.4); }
 
-.btn-panic { background: #8b0000; color: white; border: 1px solid #ff4d4d; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; letter-spacing: 0.5px; animation: pulseRed 2s infinite; }
-.btn-panic:hover { background: #ff4d4d; color: #000; animation: none; box-shadow: 0 0 15px rgba(255,77,77,0.8); }
-@keyframes pulseRed { 
-  0% { box-shadow: 0 0 0 0 rgba(248,81,73,0.5); } 
-  70% { box-shadow: 0 0 0 10px rgba(248,81,73,0); } 
-  100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); } 
-}
+.status-badge { padding: 6px 12px; border-radius: 6px; font-size: 0.85em; font-weight: bold; display: flex; align-items: center; }
+.ws-connected { border: 1px solid #30363d; color: #c9d1d9; background: #161b22; }
+.ws-disconnected { border: 1px solid #f85149; color: #f85149; background: rgba(248,81,73,0.1); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #8b949e; margin-right: 8px; }
+.dot-blink { background: #3fb950; box-shadow: 0 0 8px #3fb950; animation: blink 1.5s infinite; }
+@keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
 
-.btn-backtest-run { padding: 12px; background: linear-gradient(180deg, #8957e5 0%, #6b3fb8 100%); color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 1.1em; cursor: pointer; transition: 0.2s; box-shadow: 0 0 10px rgba(137,87,229,0.3); }
-.btn-backtest-run:hover:not(:disabled) { filter: brightness(1.2); box-shadow: 0 0 15px rgba(137,87,229,0.6); }
-.btn-backtest-run:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; box-shadow: none; border: 1px solid #21262d; }
+.btn-logout { background: transparent; color: #8b949e; border: none; padding: 8px; cursor: pointer; transition: 0.2s; font-weight: bold; }
+.btn-logout:hover { color: #f85149; }
 
-.config-badge { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; font-weight: bold; }
-.config-badge.active { border-color: #58a6ff; color: #58a6ff; background: rgba(88,166,255,0.1); box-shadow: 0 0 10px rgba(88,166,255,0.2); }
+/* ==========================================
+   📐 5. Grids & Premium Cards (การ์ดและเลย์เอาต์)
+   ========================================== */
+.mega-grid-top { display: grid; grid-template-columns: 350px 1fr; gap: 25px; align-items: stretch; }
+.mega-grid-middle { display: grid; grid-template-columns: 350px 1fr; gap: 25px; align-items: stretch; }
 
-.grid-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
-.card { background: #161b22; padding: 25px; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-.stats p { font-size: 1.1em; margin: 10px 0; color: #8b949e; }
-.stats strong { color: #c9d1d9; font-size: 1.2em; }
-.text-glow { text-shadow: 0 0 10px rgba(201,209,217,0.3); }
-.profit strong { color: #3fb950; font-size: 1.4em; }
-.profit.loss strong { color: #f85149; }
+.premium-card { background: #0d1117; border: 1px solid #30363d; border-radius: 16px; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); display: flex; flex-direction: column; }
+.card-title { color: #8b949e; font-size: 1.1em; text-transform: uppercase; letter-spacing: 1px; margin-top: 0; margin-bottom: 20px; border-bottom: 1px solid #21262d; padding-bottom: 12px; }
 
-.btn-global-settings { background: rgba(88,166,255,0.1); color: #58a6ff; border: 1px solid #58a6ff; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 0.9em; box-shadow: 0 0 10px rgba(88,166,255,0.2); }
-.btn-global-settings:hover { background: #58a6ff; color: #0d1117; }
-.mini-tag { background: rgba(139,148,158,0.2); border: 1px solid #30363d; color: #c9d1d9; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; }
+/* ==========================================
+   💳 6. Account Stats (ตัวเลขพอร์ต)
+   ========================================== */
+.account-card .stats-container { flex-grow: 1; display: flex; flex-direction: column; justify-content: space-evenly; gap: 15px; }
+.stat-row { display: flex; justify-content: space-between; align-items: center; }
+.stat-label { color: #8b949e; font-size: 1.1em; }
+.stat-value { font-size: 1.8em; font-weight: bold; color: #f0f6fc; }
+.stat-divider { height: 1px; background: #21262d; margin: 5px 0; }
+.text-blue { color: #58a6ff !important; text-shadow: 0 0 15px rgba(88,166,255,0.4); }
+.text-profit { color: #3fb950 !important; }
+.text-loss { color: #f85149 !important; }
+.bg-profit { background: rgba(46,160,67,0.05); border: 1px solid rgba(46,160,67,0.2); padding: 15px; border-radius: 8px; }
+.bg-loss { background: rgba(248,81,73,0.05); border: 1px solid rgba(248,81,73,0.2); padding: 15px; border-radius: 8px; }
 
-.setting-group { margin-bottom: 20px; transition: opacity 0.3s; }
-.disabled-group { opacity: 0.4; pointer-events: none; }
-.confidence-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.confidence-title { color: #c9d1d9; font-weight: bold; font-size: 0.95em; }
-.confidence-value { font-weight: bold; font-size: 1.1em; }
-.text-green { color: #3fb950; text-shadow: 0 0 8px rgba(63,185,80,0.4); }
-.text-purple { color: #d2a8ff; text-shadow: 0 0 8px rgba(210,168,255,0.4); }
-.confidence-slider { width: 100%; cursor: pointer; accent-color: #3fb950; height: 6px; background: #21262d; border-radius: 3px; outline: none; }
-.risk-slider { accent-color: #d2a8ff; }
-.symbol-input { width: 100%; padding: 12px; background: #010409; border: 1px solid #30363d; color: #f0b37e; border-radius: 6px; font-weight: bold; font-size: 1em; box-sizing: border-box; outline: none; transition: 0.2s; }
-.symbol-input:focus { border-color: #58a6ff; }
+/* ==========================================
+   📈 7. Chart Area (กราฟ)
+   ========================================== */
+.chart-card { justify-content: flex-start; }
+.chart-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #21262d; padding-bottom: 12px; margin-bottom: 15px;}
+.live-indicator { color: #3fb950; font-size: 0.85em; font-weight: bold; background: rgba(46,160,67,0.1); padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(46,160,67,0.2); display: flex; align-items: center; }
 
-.switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+/* ==========================================
+   ⚡ 8. Master Switches (สวิตช์ควบคุมโหมด)
+   ========================================== */
+.btn-save-master { background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(59,130,246,0.3); }
+.btn-save-master:hover { filter: brightness(1.2); transform: translateY(-1px); }
+
+.toggles-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 15px; }
+.toggle-box { background: #161b22; border: 1px solid #30363d; padding: 12px 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+.toggle-text { font-weight: bold; color: #c9d1d9; font-size: 0.9em; }
+
+/* Toggle Switch Design */
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #30363d; transition: .4s; border-radius: 34px; }
-.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
-input:checked + .slider { background-color: #58a6ff; }
-input:checked + .slider:before { transform: translateX(24px); }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #30363d; transition: .3s; border-radius: 24px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+input:checked + .slider { background-color: #58a6ff; box-shadow: 0 0 8px rgba(88,166,255,0.5); }
+input:checked + .slider:before { transform: translateX(20px); }
 
-.symbol-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
-.symbol-tag { background: rgba(88,166,255,0.15); color: #58a6ff; border: 1px solid #58a6ff; padding: 6px 12px; border-radius: 20px; font-size: 0.9em; font-weight: bold; display: flex; align-items: center; gap: 8px; box-shadow: 0 0 10px rgba(88,166,255,0.2); }
-.btn-remove-sym { background: rgba(248,81,73,0.2); border: none; color: #f85149; cursor: pointer; font-size: 0.9em; padding: 2px 6px; border-radius: 50%; line-height: 1; outline: none; transition: 0.2s;}
-.btn-remove-sym:hover { background: #f85149; color: white; }
-.add-symbol-wrapper { display: flex; gap: 10px; }
-.btn-add-sym { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 0 20px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; white-space: nowrap;}
-.btn-add-sym:hover { background: #58a6ff; color: #0d1117; border-color: #58a6ff; box-shadow: 0 0 10px rgba(88,166,255,0.4); }
+.inputs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.input-group label { display: block; font-size: 0.75rem; color: #8b949e; margin-bottom: 6px; }
+.premium-input { width: 100%; padding: 10px; background: #010409; border: 1px solid #30363d; color: white; border-radius: 6px; font-weight: bold; box-sizing: border-box; outline: none; transition: 0.2s; }
+.premium-input:focus { border-color: #58a6ff; }
+.text-warning { color: #f97316 !important; }
 
-.history-section { margin-top: 25px; }
-.history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.btn-refresh { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
-.btn-refresh:hover { background: #30363d; color: white; }
-.table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; } 
-.premium-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95em; min-width: 700px; }
-.premium-table th { background: #010409; padding: 14px 15px; color: #8b949e; border-bottom: 2px solid #30363d; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85em; }
-.premium-table td { padding: 14px 15px; border-bottom: 1px solid #21262d; white-space: nowrap; }
-.premium-table tbody tr:hover { background: #1c2128; }
-.time-col { color: #8b949e; font-size: 0.9em; }
-.font-bold { font-weight: bold; color: #e6edf3; }
-.badge-type { padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; }
-.badge-type.buy { background: rgba(46, 160, 67, 0.15); color: #3fb950; }
-.badge-type.sell { background: rgba(248, 81, 73, 0.15); color: #f85149; }
-.badge-status { padding: 4px 8px; border-radius: 4px; font-size: 0.85em; border: 1px solid; }
-.badge-status.open { border-color: #d2a8ff; color: #d2a8ff; }
-.badge-status.closed { border-color: #8b949e; color: #8b949e; }
-.text-profit { color: #3fb950; font-weight: bold; }
-.text-loss { color: #f85149; font-weight: bold; }
-.text-neutral { color: #8b949e; }
-.text-center { text-align: center; color: #8b949e; padding: 30px !important; }
+/* ==========================================
+   🤖 9. AI Signal Radar (การ์ดเรดาร์เหรียญ)
+   ========================================== */
+.btn-global-settings { background: rgba(88,166,255,0.1); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); padding: 6px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 0.85em; }
+.btn-global-settings:hover { background: #58a6ff; color: #010409; }
 
-.signal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 20px; }
-.signal-box { background: #010409; border: 1px solid #30363d; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-.signal-box:hover { border-color: #58a6ff; box-shadow: 0 4px 15px rgba(88,166,255,0.1); }
+.signal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 15px; }
+.glass-panel { background: linear-gradient(145deg, #161b22, #0d1117); border: 1px solid #30363d; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px; transition: 0.3s; }
+.glass-panel:hover { border-color: #58a6ff; box-shadow: 0 4px 15px rgba(88,166,255,0.1); }
+
 .signal-header { display: flex; justify-content: space-between; align-items: center; }
-.symbol-text { color: #f0b37e; font-size: 1.25em; font-weight: bold; letter-spacing: 0.5px; }
+.btn-icon-settings { background: transparent; border: none; font-size: 1.2em; cursor: pointer; opacity: 0.6; transition: 0.3s; padding: 0; }
+.btn-icon-settings:hover { opacity: 1; transform: rotate(90deg); }
+.symbol-text { color: #f0b37e; font-size: 1.2em; font-weight: bold; letter-spacing: 0.5px; }
 
-.signal-regime { background: rgba(210,168,255,0.1); color: #d2a8ff; font-size: 0.75em; font-weight: bold; padding: 6px 10px; border-radius: 6px; text-align: center; letter-spacing: 0.5px; border: 1px dashed rgba(210,168,255,0.3); }
-
-.signal-badge { font-size: 0.8em; font-weight: bold; padding: 4px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.signal-badge { font-size: 0.75em; font-weight: bold; padding: 4px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 .signal-badge.buy, .signal-badge.strong_buy { background: rgba(46,160,67,0.2); color: #3fb950; border: 1px solid #3fb950; }
 .signal-badge.sell, .signal-badge.strong_sell { background: rgba(248,81,73,0.2); color: #f85149; border: 1px solid #f85149; }
-.signal-badge.hold, .signal-badge.wait, .signal-badge.sleep, .signal-badge.offline { background: rgba(139,148,158,0.2); color: #8b949e; border: 1px solid #8b949e; }
+.signal-badge.hold, .signal-badge.wait, .signal-badge.offline { background: rgba(139,148,158,0.2); color: #8b949e; border: 1px solid #8b949e; }
 
-.signal-bar-container { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #21262d; margin-top: 4px; }
+.signal-regime { background: rgba(210,168,255,0.1); color: #d2a8ff; font-size: 0.75em; font-weight: bold; padding: 6px; border-radius: 6px; text-align: center; border: 1px dashed rgba(210,168,255,0.3); }
+
+.signal-bar-container { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #21262d; margin-top: 4px; }
 .signal-bar { transition: width 0.5s ease-in-out; }
 .signal-bar.buy { background: linear-gradient(90deg, #2ea043, #3fb950); }
 .signal-bar.sell { background: linear-gradient(90deg, #da3633, #f85149); }
@@ -824,59 +951,159 @@ input:checked + .slider:before { transform: translateX(24px); }
 .buy-text { color: #3fb950; }
 .sell-text { color: #f85149; }
 
-.btn-icon-settings { background: transparent; border: none; font-size: 1.2em; cursor: pointer; transition: 0.3s; opacity: 0.7; padding: 0;}
-.btn-icon-settings:hover { opacity: 1; transform: rotate(90deg); }
+.signal-indicators { margin-top: auto; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 0.8em; display: flex; justify-content: space-between; color: #8b949e; }
 
-/* 🌟 อัปเกรด Modal Box ให้รองรับจอมือถือ ไม่ล้นขอบ */
-.modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(4px); }
-.modal-box { 
-    background: #161b22; 
-    padding: 25px; 
-    border-radius: 12px; 
-    border: 1px solid #30363d; 
-    width: 90%; 
-    max-width: 350px; 
-    box-shadow: 0 10px 40px rgba(0,0,0,0.8); 
-    animation: modalFadeIn 0.2s ease-out; 
-    /* สิ่งที่เพิ่มเข้ามา: บังคับไม่ให้สูงเกินจอ และให้ไถเลื่อนขึ้นลงได้ */
-    max-height: 85vh; 
-    overflow-y: auto; 
+/* ==========================================
+   📜 10. History Table (ตารางประวัติ)
+   ========================================== */
+.history-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #21262d; padding-bottom: 12px; margin-bottom: 15px; }
+.btn-refresh { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s; font-size: 0.9em; }
+.btn-refresh:hover { background: #30363d; color: white; }
+
+.table-container { overflow-x: auto; } 
+.premium-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9em; min-width: 800px; }
+.premium-table th { background: #010409; padding: 12px 15px; color: #8b949e; border-bottom: 2px solid #30363d; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.8em; }
+.premium-table td { padding: 12px 15px; border-bottom: 1px solid #21262d; white-space: nowrap; color: #c9d1d9; }
+.premium-table tbody tr:hover { background: #161b22; }
+.time-col { color: #8b949e; font-size: 0.9em; }
+.font-bold { font-weight: bold; color: #e6edf3; }
+
+.badge-type { padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; }
+.badge-type.buy { background: rgba(46, 160, 67, 0.15); color: #3fb950; }
+.badge-type.sell { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+.badge-status { padding: 4px 8px; border-radius: 4px; font-size: 0.8em; border: 1px solid; }
+.badge-status.open { border-color: #d2a8ff; color: #d2a8ff; }
+.badge-status.closed { border-color: #8b949e; color: #8b949e; }
+.text-center { text-align: center; color: #8b949e; padding: 30px !important; }
+
+/* ==========================================
+   📱 11. Responsive Design (รองรับจอมือถือ/แท็บเล็ต)
+   ========================================== */
+@media (max-width: 1100px) {
+  .mega-grid-top, .mega-grid-middle { grid-template-columns: 1fr; }
+  .account-card .stats-container { gap: 20px; }
+  .toggles-grid { grid-template-columns: 1fr 1fr; }
 }
-/* ซ่อน Scrollbar ให้ดูเนียนตาเหมือนแอป Native */
-.modal-box::-webkit-scrollbar { width: 5px; }
+
+/* ==========================================
+   🧪 12. Quant Lab (Backtest Styles)
+   ========================================== */
+.backtest-controls {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.backtest-controls .input-group { flex: 1; min-width: 200px; }
+.select-styled { cursor: pointer; appearance: auto; background-color: #0d1117; }
+
+.btn-backtest-run {
+  padding: 12px 25px;
+  background: linear-gradient(180deg, #8957e5 0%, #6b3fb8 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 1.1em;
+  cursor: pointer;
+  transition: 0.2s;
+  box-shadow: 0 4px 15px rgba(137,87,229,0.3);
+  min-width: 250px;
+  height: 48px;
+}
+.btn-backtest-run:hover:not(:disabled) { filter: brightness(1.2); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(137,87,229,0.5); }
+.btn-backtest-run:disabled { background: #21262d; color: #8b949e; cursor: not-allowed; box-shadow: none; border: 1px solid #30363d; }
+
+.mega-grid-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 25px;
+}
+.result-box { text-align: center; justify-content: center; }
+.result-box h3 { color: #8b949e; margin-top: 0; margin-bottom: 10px; font-size: 1.1em; text-transform: uppercase; }
+.result-box h1 { font-size: 3em; margin: 5px 0 15px 0; text-shadow: 0 0 20px rgba(255,255,255,0.1); }
+.result-box p { color: #8b949e; margin: 0; }
+
+.config-summary { padding: 20px; background: rgba(1, 4, 9, 0.5); }
+.config-badges { display: flex; gap: 10px; flex-wrap: wrap; }
+.badge { background: #161b22; border: 1px solid #30363d; color: #8b949e; padding: 8px 15px; border-radius: 8px; font-weight: bold; font-size: 0.9em; }
+.badge.active { color: #3fb950; border-color: #3fb950; background: rgba(46,160,67,0.1); }
+.badge.active-blue { color: #58a6ff; border-color: #58a6ff; background: rgba(88,166,255,0.1); }
+.badge.active-purple { color: #d2a8ff; border-color: #d2a8ff; background: rgba(210,168,255,0.1); }
+
+.waiting-box {
+  text-align: center; color: #8b949e; padding: 60px 20px; 
+  border: 2px dashed #30363d; border-radius: 12px; 
+  margin-top: 25px; font-size: 1.1em;
+  background: rgba(22, 27, 34, 0.3);
+}
+
+/* ==========================================
+   🎛️ 13. Modal & Sliders (หน้าต่างตั้งค่า)
+   ========================================== */
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(5px); }
+.modal-box { width: 90%; max-width: 400px; max-height: 85vh; overflow-y: auto; padding: 25px; display: flex; flex-direction: column; gap: 15px; }
+
+/* Custom Scrollbar for Modal */
+.modal-box::-webkit-scrollbar { width: 6px; }
 .modal-box::-webkit-scrollbar-track { background: transparent; }
 .modal-box::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
+.modal-box::-webkit-scrollbar-thumb:hover { background: #58a6ff; }
 
-@keyframes modalFadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-.modal-title { margin-top: 0; color: #c9d1d9; border-bottom: 1px solid #30363d; padding-bottom: 15px; margin-bottom: 20px; font-size: 1.3em; }
-.modal-actions { display: flex; gap: 12px; margin-top: 30px; }
-.btn-save { flex: 1; background: #238636; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-.btn-save:hover { filter: brightness(1.2); }
-.btn-cancel { flex: 1; background: transparent; border: 1px solid #8b949e; color: #8b949e; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-.btn-cancel:hover { background: #30363d; color: white; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 15px; margin-bottom: 5px; }
+.btn-close-modal { background: transparent; border: none; color: #8b949e; font-size: 1.5em; cursor: pointer; transition: 0.2s; padding: 0; line-height: 1; }
+.btn-close-modal:hover { color: #f85149; transform: rotate(90deg); }
 
-.auto-tune-container { background: #0d1117; border: 1px solid #30363d; padding: 12px; border-radius: 8px; margin-bottom: 20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
-.mini-tabs { display: flex; background: #161b22; border-radius: 6px; border: 1px solid #30363d; overflow: hidden; margin-bottom: 12px; }
-.mini-tab-btn { flex: 1; padding: 8px 5px; background: transparent; border: none; color: #8b949e; font-size: 0.8em; font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap;}
+.auto-tune-toggle-box { background: rgba(88,166,255,0.05); border: 1px solid rgba(88,166,255,0.2); padding: 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+
+.mini-tabs { display: flex; background: #010409; border-radius: 8px; border: 1px solid #30363d; overflow: hidden; margin-bottom: 15px; }
+.mini-tab-btn { flex: 1; padding: 10px; background: transparent; border: none; color: #8b949e; font-size: 0.85em; font-weight: bold; cursor: pointer; transition: 0.2s; }
 .mini-tab-btn:hover { color: #c9d1d9; background: rgba(255,255,255,0.05); }
 .mini-tab-btn.active { background: rgba(88,166,255,0.15); color: #58a6ff; }
-.input-label { font-size: 0.7em; color: #8b949e; display: block; margin-bottom: 4px; }
-.mini-input { padding: 8px !important; font-size: 0.9em !important; }
-.fade-in { animation: fadeIn 0.2s ease-in-out; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+.tab-desc { font-size: 0.8em; margin-top: 0; margin-bottom: 15px; text-align: center; font-weight: bold; }
+
+/* 🌟 Premium Sliders */
+.setting-group { margin-bottom: 20px; }
+.confidence-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.confidence-title { color: #c9d1d9; font-weight: bold; font-size: 0.9em; }
+.confidence-value { font-weight: bold; font-size: 1.1em; }
+
+.premium-slider { -webkit-appearance: none; width: 100%; height: 6px; border-radius: 3px; background: #21262d; outline: none; opacity: 0.9; transition: opacity .2s; cursor: pointer; }
+.premium-slider:hover { opacity: 1; }
+.premium-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px rgba(0,0,0,0.5); border: 2px solid white; }
+.slider-green::-webkit-slider-thumb { background: #3fb950; }
+.slider-purple::-webkit-slider-thumb { background: #d2a8ff; }
+.slider-red::-webkit-slider-thumb { background: #f85149; }
+.slider-blue::-webkit-slider-thumb { background: #58a6ff; }
+.slider-orange::-webkit-slider-thumb { background: #f0b37e; }
+
+/* 🌟 Symbol Tags Manager */
+.symbol-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.symbol-tag { background: rgba(88,166,255,0.1); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); padding: 6px 12px; border-radius: 20px; font-size: 0.9em; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+.btn-remove-sym { background: rgba(248,81,73,0.2); border: none; color: #f85149; cursor: pointer; font-size: 0.9em; padding: 2px 6px; border-radius: 50%; transition: 0.2s; line-height: 1; }
+.btn-remove-sym:hover { background: #f85149; color: white; }
+.btn-add-sym { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 0 20px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; white-space: nowrap; }
+.btn-add-sym:hover { background: #58a6ff; color: #010409; border-color: #58a6ff; }
+
+/* Actions */
+.modal-actions { display: flex; margin-top: 10px; }
+.btn-save-modal { width: 100%; background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; padding: 14px; border-radius: 8px; font-weight: bold; font-size: 1.05em; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 15px rgba(59,130,246,0.4); letter-spacing: 1px; }
+.btn-save-modal:hover { filter: brightness(1.2); transform: translateY(-2px); }
+
+@media (max-width: 768px) {
+  .backtest-controls { flex-direction: column; align-items: stretch; }
+  .btn-backtest-run { width: 100%; }
+}
 
 @media (max-width: 768px) {
   .dashboard-container { padding: 15px; } 
-  .header { flex-direction: column; align-items: flex-start; gap: 15px; }
-  .header h1 { margin: 0; font-size: 1.6em; }
-  .nav-tabs { margin-left: 0; width: 100%; justify-content: flex-start; overflow-x: auto;}
-  .header-actions { width: 100%; justify-content: space-between; flex-wrap: wrap; }
-  .history-header { flex-direction: column; align-items: stretch; gap: 15px; }
-  .btn-refresh { width: 100%; padding: 12px; } 
-  .card { padding: 20px; } 
+  .glass-effect { flex-direction: column; align-items: flex-start; gap: 15px; padding: 15px; margin: -15px -15px 20px -15px; }
+  .header h1 { font-size: 1.3em; }
+  .nav-tabs { margin-left: 0; width: 100%; justify-content: flex-start; overflow-x: auto; padding-bottom: 5px; }
+  .header-actions { width: 100%; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+  .btn-start-nav, .btn-stop-nav, .btn-panic { flex: 1; text-align: center; }
+  .toggles-grid, .inputs-grid { grid-template-columns: 1fr; }
+  .premium-card { padding: 15px; }
 }
-@media (max-width: 480px) {
-  .login-box { padding: 30px 20px; } 
-  .status-badge { font-size: 0.75em; padding: 6px 10px; }
-}
+
 </style>

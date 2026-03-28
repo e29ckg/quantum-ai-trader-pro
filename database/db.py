@@ -68,9 +68,18 @@ class SymbolConfig(Base):
     at_vol_low_be = Column(Float, default=1.5)
     market_regime = Column(String, default="WAITING") # เก็บสถานะตลาด
     
-    # 🌟🌟🌟 [เพิ่ม 2 บรรทัดนี้สำหรับ V5] 🌟🌟🌟
+    # ⏱️ เวลาเทรด (V5)
     trade_start_time = Column(String, default="00:00")
     trade_end_time = Column(String, default="23:59")
+    
+    # 🚑 โหมดแก้เกม (Recovery DCA)
+    recovery_mode = Column(Boolean, default=False)
+    recovery_step_atr = Column(Float, default=1.0)
+    recovery_lot_mult = Column(Float, default=1.5)
+    max_recovery_trades = Column(Integer, default=3)
+
+    # 🛑 ตัวกรองสเปรดถ่าง (Max Spread)
+    max_spread = Column(Integer, default=50) # หน่วยเป็น Point (เช่น ทองคำ 50 จุด = 0.5 ดอลลาร์)
 
 # สร้างตารางทั้งหมด (ถ้ายังไม่มี)
 Base.metadata.create_all(bind=engine)

@@ -85,6 +85,15 @@ class SymbolSettingsUpdate(BaseModel):
     trade_start_time: Optional[str] = "00:00"
     trade_end_time: Optional[str] = "23:59"
 
+    # 🚑 รับค่าโหมดแก้เกม
+    recovery_mode: bool = False
+    recovery_step_atr: float = 1.0
+    recovery_lot_mult: float = 1.5
+    max_recovery_trades: int = 3
+    
+    # 🛑 รับค่าตัวกรองสเปรด
+    max_spread: int = 50
+
 # ==========================================
 # 🔐 API โซน: Authentication
 # ==========================================

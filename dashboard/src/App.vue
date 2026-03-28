@@ -158,7 +158,6 @@
       </div>
 
       <div v-show="currentView === 'backtest'" class="fade-in">
-      <div v-show="currentView === 'backtest'" class="fade-in">
         
         <section class="card premium-card hover-float" style="margin-bottom: 25px;">
           <h2 class="card-title" style="color: #d2a8ff; border-color: #30363d;">
@@ -233,8 +232,7 @@
           🧪 กดปุ่ม RUN SIMULATION ด้านบนเพื่อเริ่มต้นสกัดข้อมูลและทดสอบสมองกล
         </div>
       </div>
-          </div>
-          <div v-if="showSymbolModal" class="modal-overlay fade-in" @click.self="closeSymbolModal">
+      <div v-if="showSymbolModal" class="modal-overlay fade-in" @click.self="closeSymbolModal">
         <div class="modal-box glass-panel slide-up">
           <div class="modal-header">
             <h3 class="modal-title" style="margin: 0; border: none;">
@@ -303,20 +301,62 @@
                   <input type="range" min="0.5" max="3.0" step="0.1" v-model="tempSettings.break_even" class="premium-slider slider-orange" />
               </div>
           </div>
+          
           <div class="setting-group" style="margin-top: 20px; border-top: 1px solid #30363d; padding-top: 15px;">
-              <div class="confidence-header">
+            <div class="setting-group" style="margin-top: 20px; border-top: 1px solid #30363d; padding-top: 15px;">
+              <div class="auto-tune-toggle-box" style="background: rgba(210,168,255,0.05); border-color: rgba(210,168,255,0.2);">
+                 <div>
+                    <strong style="color: #d2a8ff; font-size: 1.1em;">🚑 Recovery Mode (แก้เกม)</strong>
+                    <p style="margin: 5px 0 0 0; font-size: 0.8em; color: #8b949e;">เปิดไม้แก้/เบิ้ล Lot เมื่อผิดทาง (DCA)</p>
+                 </div>
+                 <label class="switch">
+                    <input type="checkbox" v-model="tempSettings.recovery_mode">
+                    <span class="slider round" style="background-color: #30363d;"></span>
+                 </label>
+              </div>
+              
+              <div class="setting-group" style="margin-top: 20px; border-top: 1px solid #30363d; padding-top: 15px;">
+                <div class="confidence-header">
+                    <span class="confidence-title">🛑 Risk Filters (ตัวกรองความเสี่ยง)</span>
+                </div>
+                <div class="inputs-grid" style="margin-top: 10px;">
+                    <div class="input-group">
+                        <label>Max Spread (Points)</label>
+                        <input type="number" v-model="tempSettings.max_spread" class="premium-input text-loss" placeholder="เช่น 50" />
+                        <p style="font-size: 0.7em; color: #8b949e; margin-top: 4px;">หยุดเทรดถ้าสเปรดถ่างเกินค่านี้</p>
+                    </div>
+                </div>
+              </div>
+
+              <div v-if="tempSettings.recovery_mode" class="inputs-grid slide-fade" style="margin-top: 10px;">
+                  <div class="input-group">
+                      <label>ระยะห่างไม้แก้ (ATR)</label>
+                      <input type="number" step="0.1" v-model="tempSettings.recovery_step_atr" class="premium-input text-warning" />
+                  </div>
+                  <div class="input-group">
+                      <label>ตัวคูณ Lot (Multiplier)</label>
+                      <input type="number" step="0.1" v-model="tempSettings.recovery_lot_mult" class="premium-input text-purple" />
+                  </div>
+                  <div class="input-group" style="grid-column: 1 / -1;">
+                      <label>จำกัดไม้แก้สูงสุด (Max Trades)</label>
+                      <input type="number" v-model="tempSettings.max_recovery_trades" class="premium-input text-loss" />
+                  </div>
+              </div>
+            </div>
+            
+            <div class="confidence-header">
                   <span class="confidence-title">⏱️ Trading Hours (เฉพาะเหรียญนี้)</span>
-              </div>
-              <div class="inputs-grid" style="margin-top: 10px;">
-                  <div class="input-group">
-                      <label>Start Time</label>
-                      <input type="time" v-model="tempSettings.trade_start_time" class="premium-input" />
-                  </div>
-                  <div class="input-group">
-                      <label>End Time</label>
-                      <input type="time" v-model="tempSettings.trade_end_time" class="premium-input" />
-                  </div>
-              </div>
+            </div>
+            <div class="inputs-grid" style="margin-top: 10px;">
+                <div class="input-group">
+                    <label>Start Time</label>
+                    <input type="time" v-model="tempSettings.trade_start_time" class="premium-input" />
+                </div>
+                <div class="input-group">
+                    <label>End Time</label>
+                    <input type="time" v-model="tempSettings.trade_end_time" class="premium-input" />
+                </div>
+            </div>
           </div>
           
           <div class="modal-actions">
@@ -361,6 +401,7 @@
     </div>
   </div>
 </template>
+
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import ApexCharts from 'apexcharts'; // 🌟 โหลดอาวุธลับสำหรับวาดกราฟ
@@ -402,9 +443,25 @@ const showGlobalModal = ref(false);
 const showSymbolModal = ref(false);
 const currentEditSymbol = ref('');
 const tempSettings = ref({ 
+    // 🎛️ ตั้งค่าพื้นฐาน
     confidence: 54.0, risk_percent: 1.0, atr_sl: 2.0, rr_ratio: 2.0, break_even: 1.5, auto_tune: false,
+    
+    // 🤖 Auto-Tune
     at_trend_strong_conf: 60.0, at_trend_strong_rr: 2.0, at_trend_weak_conf: 65.0, at_trend_weak_rr: 1.2,
-    at_vol_high_atr_sl: 3.0, at_vol_high_be: 2.5, at_vol_low_atr_sl: 2.0, at_vol_low_be: 1.5
+    at_vol_high_atr_sl: 3.0, at_vol_high_be: 2.5, at_vol_low_atr_sl: 2.0, at_vol_low_be: 1.5,
+    
+    // ⏱️ เวลาเทรด (รายเหรียญ)
+    trade_start_time: "00:00", 
+    trade_end_time: "23:59",
+    
+    // 🚑 โหมดแก้เกม (Recovery DCA)
+    recovery_mode: false, 
+    recovery_step_atr: 1.0, 
+    recovery_lot_mult: 1.5, 
+    max_recovery_trades: 3,
+
+    // 🛑 ตัวกรองสเปรด
+    max_spread: 50
 });
 
 // ==========================================
@@ -659,7 +716,14 @@ const openSymbolSettingsModal = async (sym) => {
            at_vol_low_atr_sl: data.at_vol_low_atr_sl || 2.0,
            at_vol_low_be: data.at_vol_low_be || 1.5,
            trade_start_time: data.trade_start_time || "00:00",
-           trade_end_time: data.trade_end_time || "23:59"
+           trade_end_time: data.trade_end_time || "23:59",
+           // 🚑 โหมดแก้เกม
+           recovery_mode: data.recovery_mode || false,
+           recovery_step_atr: data.recovery_step_atr || 1.0,
+           recovery_lot_mult: data.recovery_lot_mult || 1.5,
+           max_recovery_trades: data.max_recovery_trades || 3,
+           // 🛑 ตัวกรองสเปรด
+           max_spread: data.max_spread || 50
        };
     }
   } catch(e) { console.error("Error fetching symbol settings", e); }

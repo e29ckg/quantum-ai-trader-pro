@@ -90,7 +90,7 @@ def get_bot_settings_db():
             settings = SystemSettings(
                 confidence=0.51, 
                 risk_percent=1.0, 
-                symbols="BTCUSDm,XAUUSDm,EURUSDm",  # 🌟 ใส่ลูกน้ำตรงนี้แล้ว
+                symbols="XAUUSDm",  # 🌟 ใส่ลูกน้ำตรงนี้แล้ว
                 trade_start_time="00:00",
                 trade_end_time="23:59"
             )

@@ -2,6 +2,7 @@ from fastapi import FastAPI,Request, Depends, Query, HTTPException, status, WebS
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware  
 from pydantic import BaseModel
+from typing import Optional
 import asyncio
 import json
 import MetaTrader5 as mt5
@@ -62,10 +63,9 @@ class BotSettings(BaseModel):
     confidence: float
     risk_percent: float
     symbols: str
-    trade_start_time: str 
-    trade_end_time: str   
+    # 🌟 เอาเวลาออกจาก Global Settings แล้ว
 
-class SymbolSettingUpdate(BaseModel):
+class SymbolSettingsUpdate(BaseModel):
     confidence: float
     risk_percent: float
     atr_sl: float
@@ -80,6 +80,10 @@ class SymbolSettingUpdate(BaseModel):
     at_vol_high_be: float
     at_vol_low_atr_sl: float
     at_vol_low_be: float
+    
+    # 🌟 รับค่าเวลาเทรดรายเหรียญ
+    trade_start_time: Optional[str] = "00:00"
+    trade_end_time: Optional[str] = "23:59"
 
 # ==========================================
 # 🔐 API โซน: Authentication
@@ -127,9 +131,8 @@ def get_bot_settings():
     return {
         "confidence": db_settings.confidence * 100,
         "risk_percent": db_settings.risk_percent,
-        "symbols": db_settings.symbols,
-        "trade_start_time": db_settings.trade_start_time, 
-        "trade_end_time": db_settings.trade_end_time      
+        "symbols": db_settings.symbols
+        # 🌟 ไม่ต้องส่งเวลาส่วนกลางไปให้หน้าเว็บแล้ว
     }
 
 @app.post("/api/settings/bot")
@@ -140,12 +143,13 @@ def update_bot_settings(settings: BotSettings):
         clean_symbols = [s.strip() for s in settings.symbols.split(",") if s.strip()]
         symbols_str = ",".join(clean_symbols)
 
+        # 🌟 ส่งค่า "00:00" ดัมมี่ไปหลอก Database (เพราะใน db.py เรายังบังคับรับ 5 ค่าอยู่)
         update_bot_settings_db(
             confidence_val, 
             risk_val, 
             symbols_str, 
-            settings.trade_start_time, 
-            settings.trade_end_time
+            "00:00", 
+            "23:59"
         )
         return {"status": "success"}
     except Exception as e:
@@ -157,7 +161,7 @@ def api_get_sym_setting(symbol: str):
     return get_symbol_config(symbol)
 
 @app.post("/api/settings/symbol/{symbol}")
-def api_update_sym_setting(symbol: str, settings: SymbolSettingUpdate):
+def api_update_sym_setting(symbol: str, settings: SymbolSettingsUpdate): # 🌟 แก้ชื่อ Class ให้ตรง
     update_symbol_config(symbol, settings.dict())
     return {"status": "success", "message": f"Updated {symbol}"}
 

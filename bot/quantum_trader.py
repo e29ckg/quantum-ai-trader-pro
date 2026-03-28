@@ -359,6 +359,12 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
         else: # รองรับการตั้งเวลาข้ามคืน (เช่น 22:00 - 06:00)
             is_trading_time = (now_time >= start_t or now_time <= end_t)
         # 🌟🌟🌟 [จบ: ระบบเช็คเวลาแบบรายเหรียญ] 🌟🌟🌟
+
+        # 🚑 โหลดการตั้งค่าโหมดแก้เกม (Recovery)
+        recovery_mode = sym_config.get('recovery_mode', False)
+        rec_step_atr = float(sym_config.get('recovery_step_atr', 1.0))
+        rec_lot_mult = float(sym_config.get('recovery_lot_mult', 1.5))
+        max_rec_trades = int(sym_config.get('max_recovery_trades', 3))
         
         df = get_candles(symbol, TIMEFRAME, bars=200)
         
@@ -485,33 +491,90 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
         if not is_trading_enabled:
             continue
 
-        # ==========================================
-        # 🛡️ โซนที่ 1: จัดการออเดอร์เก่า (ทำเสมอไม่ว่า Limit จะเต็มหรือไม่)
+       # ==========================================
+        # 🛡️ โซนที่ 1: จัดการออเดอร์เก่า & ระบบแก้เกม (ทำเสมอไม่ว่า Limit จะเต็มหรือไม่)
         # ==========================================
         positions = mt5.positions_get(symbol=symbol)
         
         if positions is not None and len(positions) > 0:
             main_position = None
             addon_count = 0
-            
+            dca_count = 0 # นับจำนวนไม้แก้
+
+            # ----------------------------------------
+            # 🎯 1.1 ระบบรวบตึง (Basket Close) กรณีเปิดโหมดแก้เกม
+            # ----------------------------------------
+            if recovery_mode and len(positions) > 1:
+                total_profit = sum([p.profit for p in positions])
+                # ถ้ารวมกำไรทุกไม้ในเหรียญนี้แล้ว มากกว่าเป้า Quick Profit ให้ปิดรวบหนีเลย
+                if total_profit >= QUICK_PROFIT_TARGET:
+                    closed_count = 0
+                    for pos in positions:
+                        if close_mt5_position(pos, comment="Basket TP 🎯"): closed_count += 1
+                    
+                    if closed_count > 0:
+                        msg = f"🎯 <b>RECOVERY SUCCESS</b>\nรวบตึง {symbol} สำเร็จ {closed_count} ไม้!\n💰 กำไรสุทธิ: +${total_profit:.2f}"
+                        send_telegram_message(msg)
+                        print(f"🎯 [Recovery] รวบตึง {symbol} สำเร็จ รับ PnL: +${total_profit:.2f}")
+                    continue # จบงานเหรียญนี้ วนลูปไปเหรียญอื่นต่อ
+
+            # ----------------------------------------
+            # 🚑 1.2 ระบบยิงไม้แก้ (DCA / Martingale)
+            # ----------------------------------------
+            if recovery_mode and len(positions) < max_rec_trades:
+                # หาไม้ที่เพิ่งยิงล่าสุด เพื่อวัดระยะลาก
+                last_order = max(positions, key=lambda p: p.time)
+                tick = mt5.symbol_info_tick(symbol)
+                
+                if tick:
+                    current_price = tick.ask if last_order.type == mt5.ORDER_TYPE_BUY else tick.bid
+                    
+                    # คำนวณระยะทางที่โดนลาก (ถ้าเป็นบวกคือโดนลาก)
+                    if last_order.type == mt5.ORDER_TYPE_BUY: drag_distance = last_order.price_open - current_price
+                    else: drag_distance = current_price - last_order.price_open
+                    
+                    # ถ้าระยะลาก มากกว่า (Step ATR x ATR14) ให้ยิงสู้!
+                    if drag_distance >= (rec_step_atr * atr_14):
+                        new_lot = round(last_order.volume * rec_lot_mult, 2)
+                        dca_sig = "buy" if last_order.type == mt5.ORDER_TYPE_BUY else "sell"
+                        
+                        print(f"🚑 [Recovery] {symbol} โดนลาก {(drag_distance/atr_14):.2f} ATR! ยิงไม้แก้ Lot: {new_lot}")
+                        
+                        # ยิงไม้แก้แบบไม่มี SL/TP (เดี๋ยวให้ Basket Close หรือ Trailing จัดการรวบ)
+                        res = send_order(symbol, dca_sig, new_lot, sl=0.0, tp=0.0, comment="DCA Recovery")
+                        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                            save_new_trade(res.order, symbol, f"{dca_sig} (DCA)", res.price)
+                            send_telegram_message(f"🚑 <b>DCA RECOVERY FIRED</b>\n💱 {symbol}\n📏 ระยะลาก: {drag_distance:.4f}\n🛒 Lot: {new_lot}")
+
+
+            # ----------------------------------------
+            # 🧹 1.3 ลูปจัดการทีละออเดอร์ (Trailing, BE, Scalp)
+            # ----------------------------------------
             for pos in positions:
                 sync_manual_order_to_db(pos)
+                
+                # 🧹 ระบบล้างพอร์ตก่อนนอน (ถ้าเปิดโหมดไว้)
+                AUTO_CLEAR_PORT_ON_SLEEP = False # 👈 เปลี่ยนเป็น True ถ้าอยากให้ปิดทุกไม้ตอนหมดเวลาเทรด
+                if not is_trading_time and AUTO_CLEAR_PORT_ON_SLEEP:
+                    if close_mt5_position(pos, comment="Auto End-of-Day Close"):
+                        send_telegram_message(f"🧹 <b>AUTO CLEAR PORT</b>\nหมดเวลาเทรด ปิดออเดอร์ {symbol} \n💰 PnL: {pos.profit:.2f}")
+                    continue 
+
+                # บังหน้าทุน
                 apply_break_even(pos, df, break_even_mult)
 
-                # ⚡ 1.1 โหมด Quick Scalp
+                # ⚡ โหมด Quick Scalp (ไม้เดี่ยวๆ)
                 if QUICK_SCALP_MODE and pos.profit >= QUICK_PROFIT_TARGET:
                     if close_mt5_position(pos, comment="AI Quick Scalp"):
                         send_telegram_message(f"⚡ <b>AI QUICK SCALP</b>\n💱 {symbol}\n💰 🟢 <b>+${pos.profit:.2f}</b>")
-                        print(f"⚡ [Quick Scalp] ปิดกำไรสั้น {symbol} รับเงิน +${pos.profit:.2f}")
                     continue 
 
-                # 🌊 1.2 โหมด Endless Trailing
+                # 🌊 โหมด Endless Trailing
                 is_be_secured = (pos.type == mt5.ORDER_TYPE_BUY and pos.sl >= pos.price_open) or \
                                 (pos.type == mt5.ORDER_TYPE_SELL and pos.sl <= pos.price_open and pos.sl != 0.0)
 
                 if ENDLESS_TRAILING_MODE and pos.profit > 0 and is_be_secured:
-                    tick = mt5.symbol_info_tick(symbol)
-                    sym_info = mt5.symbol_info(symbol)
+                    tick, sym_info = mt5.symbol_info_tick(symbol), mt5.symbol_info(symbol)
                     if tick and sym_info:
                         trail_dist = atr_14 * atr_mult 
                         new_sl = 0.0
@@ -527,15 +590,15 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
                                 mt5.order_send({"action": mt5.TRADE_ACTION_SLTP, "symbol": symbol, "sl": new_sl, "tp": pos.tp, "position": pos.ticket})
                                 
                 if pos.comment == "AI Addon": addon_count += 1
+                elif pos.comment == "DCA Recovery": dca_count += 1
                 else: main_position = pos
                 
-                # 🛡️ 1.3 โหมดบีบโล่ (Aggressive Defense)
+                # 🛡️ โหมดบีบโล่ (Aggressive Defense)
                 defense_mode = (pos.type == mt5.ORDER_TYPE_BUY and liq_signal in ["sell", "strong_sell"] and sell_prob >= target_confidence_percent) or \
                                (pos.type == mt5.ORDER_TYPE_SELL and liq_signal in ["buy", "strong_buy"] and buy_prob >= target_confidence_percent)
                     
                 if defense_mode:
-                    tick = mt5.symbol_info_tick(symbol)
-                    sym_info = mt5.symbol_info(symbol)
+                    tick, sym_info = mt5.symbol_info_tick(symbol), mt5.symbol_info(symbol)
                     if tick and sym_info:
                         aggressive_dist = atr_14 * 0.5 
                         new_sl = tick.bid - aggressive_dist if pos.type == mt5.ORDER_TYPE_BUY else tick.ask + aggressive_dist
@@ -544,14 +607,16 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
                             new_sl = round(new_sl, sym_info.digits)
                             mt5.order_send({"action": mt5.TRADE_ACTION_SLTP, "symbol": symbol, "sl": new_sl, "tp": pos.tp, "position": pos.ticket})
             
-            # 🚀 1.4 โหมด Add-On (Pyramiding)
-            if is_trading_time and not hit_daily_limit and sym_config.get('auto_tune', False) and main_position and addon_count < (MAX_TOTAL_POSITIONS - 1) and is_strong_trend:
+            # ----------------------------------------
+            # 🚀 1.4 โหมด Add-On (Pyramiding ตามเทรนด์)
+            # ----------------------------------------
+            # จะยิง Add-on ได้ก็ต่อเมื่อ ไม่ได้อยู่ในสถานะโดนลาก (ไม่มีไม้ DCA)
+            if is_trading_time and not hit_daily_limit and sym_config.get('auto_tune', False) and main_position and addon_count < (MAX_TOTAL_POSITIONS - 1) and is_strong_trend and dca_count == 0:
                 main_secured = (main_position.type == mt5.ORDER_TYPE_BUY and main_position.sl >= main_position.price_open) or \
                                (main_position.type == mt5.ORDER_TYPE_SELL and main_position.sl <= main_position.price_open and main_position.sl != 0.0)
                 
                 if main_secured:
                     final_addon_signal = None
-                    # 🌟 เติม and is_confluence_... เข้าไปดักไม้ Add-on ด้วยครับ
                     if main_position.type == mt5.ORDER_TYPE_BUY and buy_prob >= target_confidence_percent and is_confluence_buy: 
                         final_addon_signal = "strong_buy"
                     elif main_position.type == mt5.ORDER_TYPE_SELL and sell_prob >= target_confidence_percent and is_confluence_sell: 
@@ -569,9 +634,9 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
                             result = send_order(symbol, final_addon_signal, lot, sl=sl_price, tp=tp_price, comment="AI Addon")
                             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                                 save_new_trade(result.order, symbol, final_addon_signal, result.price)
-                                send_telegram_message(f"🔥 <b>AI ADD-ON EXECUTED</b> 🔥\n\n💱 <b>Symbol:</b> {symbol}\n💰 <b>Add Entry:</b> {result.price}")
+                                send_telegram_message(f"🔥 <b>AI ADD-ON EXECUTED</b> 🔥\n💱 {symbol}\n💰 Add Entry: {result.price}")
 
-            continue # จบกระบวนการถ้ามีออเดอร์ค้างอยู่
+            continue # จบกระบวนการถ้ามีออเดอร์ค้างอยู่ (ข้ามไปทำเหรียญอื่น)
 
         # ==========================================
         # 🚀 โซนที่ 2: โซนยิงออเดอร์ใหม่ (ไม้หลัก)

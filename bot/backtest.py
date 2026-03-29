@@ -78,6 +78,18 @@ def run_backtest_pro(symbol, bars=2000, df=None, model=None, sym_config=None, **
             sym_config = {}
 
     is_auto_tune = sym_config.get('auto_tune', False)
+    
+    # 🌟 โหลดตั้งค่าโหมดแก้เกม (Recovery)
+    recovery_mode = sym_config.get('recovery_mode', False)
+    rec_step_atr = float(sym_config.get('recovery_step_atr', 1.0))
+    rec_lot_mult = float(sym_config.get('recovery_lot_mult', 1.5))
+    max_rec_trades = int(sym_config.get('max_recovery_trades', 3))
+    
+    # 🌟 โหลดเวลาเทรด (Time Filter)
+    start_time_str = sym_config.get('trade_start_time', '00:00')
+    end_time_str = sym_config.get('trade_end_time', '23:59')
+    start_t = datetime.strptime(start_time_str, "%H:%M").time()
+    end_t = datetime.strptime(end_time_str, "%H:%M").time()
 
     # --- 2. โหลดข้อมูลกราฟและโมเดล ---
     if df is None:
@@ -97,7 +109,6 @@ def run_backtest_pro(symbol, bars=2000, df=None, model=None, sym_config=None, **
     # --- 3. Feature Engineering (เตรียมข้อมูลให้ AI) ---
     df_ai = df.copy()
     
-    # คำนวณ ATR, EMA, Trend, RSI
     tr = pd.concat([df_ai['high'] - df_ai['low'], (df_ai['high'] - df_ai['close'].shift()).abs(), (df_ai['low'] - df_ai['close'].shift()).abs()], axis=1).max(axis=1)
     df_ai['ATR_14'] = tr.rolling(14).mean()
     df_ai['ATR_50'] = tr.rolling(50).mean()
@@ -114,20 +125,20 @@ def run_backtest_pro(symbol, bars=2000, df=None, model=None, sym_config=None, **
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     df_ai['RSI_14'] = 100 - (100 / (1 + (gain / loss)))
 
-    # เพิ่มตัวแปร V5 (Macro Trend, Time)
     df_ai['EMA_200'] = df_ai['close'].ewm(span=200, adjust=False).mean()
     df_ai['Macro_Trend'] = np.where(df_ai['close'] > df_ai['EMA_200'], 1, -1)
+    
     if 'time' in df_ai.columns:
         time_col = pd.to_datetime(df_ai['time'], unit='s') if pd.api.types.is_numeric_dtype(df_ai['time']) else pd.to_datetime(df_ai['time'])
         df_ai['Hour'], df_ai['DayOfWeek'] = time_col.dt.hour, time_col.dt.dayofweek
+        df_ai['ActualTime'] = time_col # เก็บเวลาไว้เช็ค Time Filter
     else:
         df_ai['Hour'], df_ai['DayOfWeek'] = df_ai.index.hour, df_ai.index.dayofweek
+        df_ai['ActualTime'] = df_ai.index
 
-    # คำนวณ MACD (สำหรับระบบโหวต 2/3)
     macd_line = df_ai['close'].ewm(span=12, adjust=False).mean() - df_ai['close'].ewm(span=26, adjust=False).mean()
     df_ai['MACD_hist'] = macd_line - macd_line.ewm(span=9, adjust=False).mean()
 
-    # ทำนายผลล่วงหน้า (AI Batch Prediction)
     features = ['tick_volume', 'Volatility_Ratio', 'Dist_EMA20', 'Dist_EMA50', 'Trend_Slope', 'Macro_Trend', 'RSI_14', 'Hour', 'DayOfWeek']
     df_ai.dropna(subset=features, inplace=True)
 
@@ -139,9 +150,9 @@ def run_backtest_pro(symbol, bars=2000, df=None, model=None, sym_config=None, **
     engine = BacktestEngine(initial_balance=3000.0) 
     open_positions = []
     contract_size = 100 if "XAU" in symbol else 1 
-    lot_size = 0.01
+    base_lot_size = 0.01
 
-    print(f"🤖 เริ่มจำลองการเทรด (Auto-Tune: {'🟢 เปิด' if is_auto_tune else '🔴 ปิด'})")
+    print(f"🤖 เริ่มจำลองการเทรด V5 (Auto-Tune: {'🟢' if is_auto_tune else '🔴'} | DCA: {'🚑' if recovery_mode else '🔴'})")
     total_steps = len(df_ai)
 
     # --- 5. ลูปจำลองเวลาเดินหน้า (Time-Series Loop) ---
@@ -153,6 +164,10 @@ def run_backtest_pro(symbol, bars=2000, df=None, model=None, sym_config=None, **
             sys.stdout.flush()
 
         atr_14 = current_bar['ATR_14']
+        
+        # ⏱️ เช็คเวลาปัจจุบันว่าอยู่ในช่วงให้เทรดไหม
+        cur_time = current_bar['ActualTime'].time()
+        is_trading_time = (start_t <= cur_time <= end_t) if start_t <= end_t else (cur_time >= start_t or cur_time <= end_t)
 
         # ⚙️ Auto-Tune Dynamic Adjustments
         if is_auto_tune:
@@ -170,57 +185,80 @@ def run_backtest_pro(symbol, bars=2000, df=None, model=None, sym_config=None, **
             cur_be_mult = float(sym_config.get('break_even', 1.5))
             is_strong_trend = False
 
-        # 🛡️ โซน 1: จัดการออเดอร์เก่า (ตรวจสอบ TP/SL/Trailing)
-        remaining_positions = []
-        for pos in open_positions:
-            closed = False
+        # 🛡️ โซน 1: จัดการออเดอร์เก่า & Recovery DCA
+        if len(open_positions) > 0:
             
-            # คำนวณกำไรปัจจุบัน (สำหรับ Quick Scalp)
-            cur_profit = (current_bar['close'] - pos['entry']) * lot_size * contract_size if pos['type'] == "buy" else (pos['entry'] - current_bar['close']) * lot_size * contract_size
-            
-            # เช็คปิดโหมด Quick Scalp
-            if QUICK_SCALP_MODE and cur_profit >= QUICK_PROFIT_TARGET:
-                engine.execute_trade(pos['time'], pos['entry'], pos['type'], current_bar['close'], pos['sl_dist_init'], "Quick Scalp ⚡", lot=lot_size, contract_size=contract_size)
-                closed = True
+            # 🎯 1.1 ระบบรวบตึง (Basket Close)
+            if recovery_mode and len(open_positions) > 1:
+                total_profit = sum([
+                    (current_bar['close'] - p['entry']) * p['lot'] * contract_size if p['type'] == 'buy' 
+                    else (p['entry'] - current_bar['close']) * p['lot'] * contract_size 
+                    for p in open_positions
+                ])
+                if total_profit >= QUICK_PROFIT_TARGET:
+                    for pos in open_positions:
+                        engine.execute_trade(pos['time'], pos['entry'], pos['type'], current_bar['close'], pos['sl_dist_init'], "Basket Close 🎯", lot=pos['lot'], contract_size=contract_size)
+                    open_positions = []
+                    continue # จบแท่งนี้เลย
 
-            # เช็คชน TP (ทำเมื่อไม่ได้เปิดโหมด Endless Trailing และมีค่า TP จริงๆ)
-            if not closed and not ENDLESS_TRAILING_MODE and pos['tp'] > 0:
-                if pos['type'] == "buy" and current_bar['high'] >= pos['tp']:
-                    engine.execute_trade(pos['time'], pos['entry'], "buy", pos['tp'], pos['sl_dist_init'], "TP", lot=lot_size, contract_size=contract_size)
-                    closed = True
-                elif pos['type'] == "sell" and current_bar['low'] <= pos['tp']:
-                    engine.execute_trade(pos['time'], pos['entry'], "sell", pos['tp'], pos['sl_dist_init'], "TP", lot=lot_size, contract_size=contract_size)
-                    closed = True
-            
-            # เช็คชน SL
-            if not closed:
-                if pos['type'] == "buy" and current_bar['low'] <= pos['sl']:
-                    reason = "Trailing SL 🌊" if pos['be_applied'] and ENDLESS_TRAILING_MODE else ("Break-Even 🔒" if pos['be_applied'] else "SL 🔴")
-                    engine.execute_trade(pos['time'], pos['entry'], "buy", pos['sl'], pos['sl_dist_init'], reason, lot=lot_size, contract_size=contract_size)
-                    closed = True
-                elif pos['type'] == "sell" and current_bar['high'] >= pos['sl']:
-                    reason = "Trailing SL 🌊" if pos['be_applied'] and ENDLESS_TRAILING_MODE else ("Break-Even 🔒" if pos['be_applied'] else "SL 🔴")
-                    engine.execute_trade(pos['time'], pos['entry'], "sell", pos['sl'], pos['sl_dist_init'], reason, lot=lot_size, contract_size=contract_size)
+            # 🚑 1.2 ระบบยิงไม้แก้ (DCA)
+            if recovery_mode and len(open_positions) < max_rec_trades:
+                last_pos = open_positions[-1]
+                drag_dist = (last_pos['entry'] - current_bar['close']) if last_pos['type'] == 'buy' else (current_bar['close'] - last_pos['entry'])
+                
+                if drag_dist >= (rec_step_atr * atr_14):
+                    new_lot = round(last_pos['lot'] * rec_lot_mult, 2)
+                    open_positions.append({
+                        "type": last_pos['type'], "entry": current_bar['close'], "time": current_bar.name if hasattr(current_bar, 'name') else i,
+                        "sl_dist_init": last_pos['sl_dist_init'], "sl": 0.0, "tp": 0.0, "be_applied": False, "lot": new_lot, "is_dca": True
+                    })
+
+            # 🧹 1.3 จัดการทีละออเดอร์ (Trailing, BE, Scalp)
+            remaining_positions = []
+            for pos in open_positions:
+                closed = False
+                cur_profit = (current_bar['close'] - pos['entry']) * pos['lot'] * contract_size if pos['type'] == "buy" else (pos['entry'] - current_bar['close']) * pos['lot'] * contract_size
+                
+                if QUICK_SCALP_MODE and cur_profit >= QUICK_PROFIT_TARGET:
+                    engine.execute_trade(pos['time'], pos['entry'], pos['type'], current_bar['close'], pos['sl_dist_init'], "Quick Scalp ⚡", lot=pos['lot'], contract_size=contract_size)
                     closed = True
 
-            if not closed:
-                # บังหน้าทุน (Break-Even)
-                if pos['type'] == "buy" and not pos['be_applied'] and current_bar['close'] > pos['entry'] + (atr_14 * cur_be_mult):
-                    pos['sl'], pos['be_applied'] = pos['entry'], True
-                elif pos['type'] == "sell" and not pos['be_applied'] and current_bar['close'] < pos['entry'] - (atr_14 * cur_be_mult):
-                    pos['sl'], pos['be_applied'] = pos['entry'], True
+                if not closed and not ENDLESS_TRAILING_MODE and pos['tp'] > 0:
+                    if pos['type'] == "buy" and current_bar['high'] >= pos['tp']:
+                        engine.execute_trade(pos['time'], pos['entry'], "buy", pos['tp'], pos['sl_dist_init'], "TP", lot=pos['lot'], contract_size=contract_size)
+                        closed = True
+                    elif pos['type'] == "sell" and current_bar['low'] <= pos['tp']:
+                        engine.execute_trade(pos['time'], pos['entry'], "sell", pos['tp'], pos['sl_dist_init'], "TP", lot=pos['lot'], contract_size=contract_size)
+                        closed = True
+                
+                if not closed and pos['sl'] > 0:
+                    if pos['type'] == "buy" and current_bar['low'] <= pos['sl']:
+                        reason = "Trailing SL 🌊" if pos['be_applied'] and ENDLESS_TRAILING_MODE else ("Break-Even 🔒" if pos['be_applied'] else "SL 🔴")
+                        engine.execute_trade(pos['time'], pos['entry'], "buy", pos['sl'], pos['sl_dist_init'], reason, lot=pos['lot'], contract_size=contract_size)
+                        closed = True
+                    elif pos['type'] == "sell" and current_bar['high'] >= pos['sl']:
+                        reason = "Trailing SL 🌊" if pos['be_applied'] and ENDLESS_TRAILING_MODE else ("Break-Even 🔒" if pos['be_applied'] else "SL 🔴")
+                        engine.execute_trade(pos['time'], pos['entry'], "sell", pos['sl'], pos['sl_dist_init'], reason, lot=pos['lot'], contract_size=contract_size)
+                        closed = True
+
+                if not closed:
+                    if pos['type'] == "buy" and not pos['be_applied'] and current_bar['close'] > pos['entry'] + (atr_14 * cur_be_mult):
+                        pos['sl'], pos['be_applied'] = pos['entry'], True
+                    elif pos['type'] == "sell" and not pos['be_applied'] and current_bar['close'] < pos['entry'] - (atr_14 * cur_be_mult):
+                        pos['sl'], pos['be_applied'] = pos['entry'], True
+                        
+                    if ENDLESS_TRAILING_MODE and pos['be_applied']:
+                        trail_dist = atr_14 * cur_atr_sl
+                        if pos['type'] == "buy" and (current_bar['close'] - trail_dist) > pos['sl']: pos['sl'] = current_bar['close'] - trail_dist
+                        elif pos['type'] == "sell" and (current_bar['close'] + trail_dist) < pos['sl']: pos['sl'] = current_bar['close'] + trail_dist
                     
-                # เลื่อนกำไร (Endless Trailing)
-                if ENDLESS_TRAILING_MODE and pos['be_applied']:
-                    trail_dist = atr_14 * cur_atr_sl
-                    if pos['type'] == "buy" and (current_bar['close'] - trail_dist) > pos['sl']: pos['sl'] = current_bar['close'] - trail_dist
-                    elif pos['type'] == "sell" and (current_bar['close'] + trail_dist) < pos['sl']: pos['sl'] = current_bar['close'] + trail_dist
-                
-                remaining_positions.append(pos)
-                
-        open_positions = remaining_positions
+                    remaining_positions.append(pos)
+                    
+            open_positions = remaining_positions
 
-        # 🎯 โซน 2: ยิงออเดอร์ใหม่ (ประมวลผลสัญญาณ AI + โหวต 2/3)
+        # 🎯 โซน 2: ยิงออเดอร์ใหม่ (เช็คเวลา + สัญญาณ)
+        if not is_trading_time: continue # 🌟 ถ้านอกเวลา ไม่ให้ออกไม้ใหม่เลย
+
         buy_score = sum([current_bar['RSI_14'] > 50, current_bar['close'] > current_bar['EMA_50'], current_bar['MACD_hist'] > 0])
         sell_score = sum([current_bar['RSI_14'] < 50, current_bar['close'] < current_bar['EMA_50'], current_bar['MACD_hist'] < 0])
 
@@ -230,14 +268,18 @@ def run_backtest_pro(symbol, bars=2000, df=None, model=None, sym_config=None, **
 
         if smc_sig == "hold": continue
                 
-        # คำนวณความเสี่ยง และตั้งค่าออเดอร์
         sl_dist = atr_14 * cur_atr_sl
-        if (sl_dist * lot_size * contract_size) > MAX_ALLOWED_LOSS_USD: continue # เบรกฉุกเฉิน
+        if (sl_dist * base_lot_size * contract_size) > MAX_ALLOWED_LOSS_USD: continue 
 
-        # กฏการ Add-on
+        # กฏการเข้าไม้ (ไม้แรก หรือ Add-on)
+        dca_count = sum(1 for p in open_positions if p.get('is_dca', False))
         can_open = False
-        if len(open_positions) == 0: can_open = True
-        elif len(open_positions) == 1 and is_auto_tune and is_strong_trend and open_positions[0]['be_applied'] and open_positions[0]['type'] == smc_sig: can_open = True
+        
+        if len(open_positions) == 0: 
+            can_open = True
+        # ยิง Add-on ได้ก็ต่อเมื่อไม่มีไม้ DCA ค้างอยู่
+        elif len(open_positions) == 1 and is_auto_tune and is_strong_trend and open_positions[0]['be_applied'] and open_positions[0]['type'] == smc_sig and dca_count == 0: 
+            can_open = True
 
         if can_open:
             entry_p = current_bar['close']
@@ -246,13 +288,13 @@ def run_backtest_pro(symbol, bars=2000, df=None, model=None, sym_config=None, **
             
             open_positions.append({
                 "type": smc_sig, "entry": entry_p, "time": current_bar.name if hasattr(current_bar, 'name') else i,
-                "sl_dist_init": sl_dist, "sl": sl_p, "tp": tp_p, "be_applied": False
+                "sl_dist_init": sl_dist, "sl": sl_p, "tp": tp_p, "be_applied": False, "lot": base_lot_size, "is_dca": False
             })
 
     # --- 6. เก็บกวาดตอนจบกราฟ ---
     last_bar = df_ai.iloc[-1]
     for pos in open_positions:
-        engine.execute_trade(pos['time'], pos['entry'], pos['type'], last_bar['close'], pos['sl_dist_init'], "End of Data 🏁", lot=lot_size, contract_size=contract_size)
+        engine.execute_trade(pos['time'], pos['entry'], pos['type'], last_bar['close'], pos['sl_dist_init'], "End of Data 🏁", lot=pos['lot'], contract_size=contract_size)
 
     print("\n✅ ประมวลผลเสร็จสิ้น! กำลังส่งรายงานกลับไปที่หน้าเว็บ...")
-    return engine.generate_report(config={"auto_tune": is_auto_tune, "endless_trailing": ENDLESS_TRAILING_MODE, "quick_scalp": QUICK_SCALP_MODE})
+    return engine.generate_report(config={"auto_tune": is_auto_tune, "endless_trailing": ENDLESS_TRAILING_MODE, "quick_scalp": QUICK_SCALP_MODE, "recovery_dca": recovery_mode})

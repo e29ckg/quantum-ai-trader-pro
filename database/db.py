@@ -71,6 +71,9 @@ class SymbolConfig(Base):
     # ⏱️ เวลาเทรด (V5)
     trade_start_time = Column(String, default="00:00")
     trade_end_time = Column(String, default="23:59")
+
+    # ⚡ ระบบเลือกสมองเข้าเทรด
+    signal_mode = Column(String, default="ai") # 'ai' หรือ 'indicator'
     
     # 🚑 โหมดแก้เกม (Recovery DCA)
     recovery_mode = Column(Boolean, default=False)

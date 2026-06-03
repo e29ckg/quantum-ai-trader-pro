@@ -85,6 +85,8 @@ class SymbolSettingsUpdate(BaseModel):
     trade_start_time: Optional[str] = "00:00"
     trade_end_time: Optional[str] = "23:59"
 
+    signal_mode: str = "ai" # 🌟 รับค่าสวิตช์สมองกล
+
     # 🚑 รับค่าโหมดแก้เกม
     recovery_mode: bool = False
     recovery_step_atr: float = 1.0

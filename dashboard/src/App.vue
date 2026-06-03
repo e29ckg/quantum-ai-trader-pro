@@ -240,6 +240,18 @@
             </h3>
             <button @click="closeSymbolModal" class="btn-close-modal">✕</button>
           </div>
+
+          <div class="setting-group" style="margin-bottom: 20px;">
+              <div class="confidence-header">
+                  <span class="confidence-title">🧠 แหล่งกำเนิดสัญญาณ (Signal Source)</span>
+              </div>
+              <select v-model="tempSettings.signal_mode" class="premium-input text-blue" style="width: 100%; margin-top: 5px;">
+                  <option value="ai">🤖 1. AI (XGBoost + SMC + โหวต)</option>
+                  <option value="indicator">⚡ 2. M1 Fast Scalp (EMA Cross + RSI)</option>
+                  <option value="x_sniper">🎯 3. M1 X-Sniper (ดักจุดกลับตัว X บน/ล่าง)</option>
+              </select>
+              <p style="font-size: 0.75em; color: #8b949e; margin-top: 5px;">* โหมด X-Sniper มีระบบ EMA 200 ป้องกันการรับมีด</p>
+          </div>
           
           <div class="auto-tune-toggle-box">
              <div>
@@ -454,6 +466,8 @@ const tempSettings = ref({
     trade_start_time: "00:00", 
     trade_end_time: "23:59",
     
+    signal_mode: "ai",
+
     // 🚑 โหมดแก้เกม (Recovery DCA)
     recovery_mode: false, 
     recovery_step_atr: 1.0, 
@@ -717,6 +731,7 @@ const openSymbolSettingsModal = async (sym) => {
            at_vol_low_be: data.at_vol_low_be || 1.5,
            trade_start_time: data.trade_start_time || "00:00",
            trade_end_time: data.trade_end_time || "23:59",
+           signal_mode: data.signal_mode || "ai",
            // 🚑 โหมดแก้เกม
            recovery_mode: data.recovery_mode || false,
            recovery_step_atr: data.recovery_step_atr || 1.0,

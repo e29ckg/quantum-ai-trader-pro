@@ -7,9 +7,12 @@ echo   [ QUANTUM AI TRADER PRO - STARTUP SEQUENCE ]
 echo ===================================================
 echo.
 
+echo [3/3] Starting Caddy System...
+start "Caddy" cmd /k "caddy run"
+
 :: 1. สั่งรัน Backend (FastAPI) ในหน้าต่างใหม่
 echo [1/2] 📡 Starting Backend Server (FastAPI / AI Engine)...
-start "Quantum AI - Backend" cmd /k "venv\Scripts\activate && uvicorn api.server:app --host 127.0.0.1 --port 80"
+start "Quantum AI - Backend" cmd /k "venv\Scripts\activate && uvicorn api.server:app --host 127.0.0.1 --port 8000"
 
 :: รอ 3 วินาทีให้ Backend เปิดเสร็จก่อน
 timeout /t 3 /nobreak >nul
@@ -18,6 +21,8 @@ timeout /t 3 /nobreak >nul
 echo [2/2] 🖥️ Starting Frontend Dashboard (Vue 3)...
 cd dashboard
 start "Quantum AI - Frontend" cmd /k "npm run dev"
+
+
 
 echo.
 echo ===================================================

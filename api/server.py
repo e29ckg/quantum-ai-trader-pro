@@ -1,6 +1,7 @@
 from fastapi import FastAPI,Request, Depends, Query, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware  
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
@@ -21,17 +22,19 @@ from bot.quantum_trader import run_bot_cycle, live_signals
 from bot.backtest import run_backtest_pro
 from api.auth import create_access_token, get_current_admin, ADMIN_USERNAME, ADMIN_PASSWORD
 
-app = FastAPI(title="Quantum AI Control Panel")
+app = FastAPI(
+    title="Quantum AI Control Panel",
+    redirect_slashes=False  # ปิดการ Redirect / อัตโนมัติ
+)
 
 # ปลดล็อก CORS ให้หน้าเว็บเรียก API ได้
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["https://exness.e29ckg.org"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 CONFIG_FILE = "master_config.json"
 
@@ -120,14 +123,19 @@ async def api_get_trades(current_admin: str = Depends(get_current_admin)):
             ticket = trade_data["ticket_id"]
             positions = mt5.positions_get(ticket=ticket)
             
+            # 🟢 ถ้าออเดอร์ยังเปิดอยู่ (วิ่งในตลาด)
             if positions and len(positions) > 0:
                 trade_data["profit"] = positions[0].profit 
+                
+            # 🔴 ถ้าออเดอร์หายไปแล้ว (แปลว่าปิดไปแล้ว)
             else:
                 history = mt5.history_deals_get(position=ticket)
                 if history and len(history) > 0:
-                    total_profit = sum(deal.profit for deal in history)
+                    # 🌟 คำนวณกำไรสุทธิ (กำไร + ค่าคอม + สวอป)
+                    total_profit = sum(deal.profit + deal.commission + deal.swap for deal in history)
+                    
                     trade_data["profit"] = total_profit
-                    trade_data["status"] = "CLOSED" 
+                    trade_data["status"] = "CLOSED"
                     
         live_trades.append(trade_data)
         

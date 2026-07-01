@@ -311,6 +311,10 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
     DAILY_LOSS_LIMIT = float(master_cfg.get("DAILY_LOSS_LIMIT", -30.0))     
     MAX_TOTAL_POSITIONS = int(master_cfg.get("MAX_TOTAL_POSITIONS", 3)) 
     MAX_ALLOWED_LOSS_USD = float(master_cfg.get("MAX_ALLOWED_LOSS_USD", 30.0)) 
+    MAX_GAP_USD = float(master_cfg.get("MAX_GAP_USD", 10.0))
+    MIN_BOUNCE_RATIO = float(master_cfg.get("MIN_BOUNCE_RATIO", 0.30))
+    KZ_BARS = int(master_cfg.get("KZ_BARS", 14))
+    OEZ_BARS = int(master_cfg.get("OEZ_BARS", 5))
     # ==========================================
 
     # 📊 1. ตรวจสอบกำไรรายวัน & วินัยกองทุน
@@ -585,32 +589,40 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
                             print(f"⚠️ [Spread Filter] อยากยิงไม้แก้ DCA แต่สเปรดถ่าง รอไปก่อน!")
 
             # ----------------------------------------
-            # 🧹 1.3.5 ลูปนับสถานะออเดอร์ & Trailing Stop รายไม้
+            # 🧹 1.3.5 ลูปนับสถานะออเดอร์ & Trailing Stop ล็อคกำไรแบบสายซิ่ง ⚡
             # ----------------------------------------
             for pos in positions:
                 if pos.comment == "AI Addon": addon_count += 1
                 elif pos.comment == "DCA Recovery": dca_count += 1
                 else: main_position = pos
                 
-                # 🌟 ระบบ Trailing Stop ล็อคกำไร (เริ่มทำงานเมื่อกำไรถึง $2)
-                if pos.profit >= 2.0:
+                # ⚡ ตั้งค่าความซิ่งของการบังหน้าทุนตรงนี้ครับ
+                TRAIL_START_USD = 0.30  # จุดเริ่มทำงาน (พอกำไรถึง $0.30 ให้บอทเริ่มขยับ SL)
+                TRAIL_LOCK_USD = 0.10   # ล็อคกำไรสุทธิ (ถ้ากราฟสะบัดชน SL จะยังเหลือกำไร $0.10 เพื่อจ่ายค่าคอมมิชชัน)
+
+                if pos.profit >= TRAIL_START_USD:
                     sym_info = mt5.symbol_info(symbol)
                     if sym_info:
                         price_diff = abs(pos.price_current - pos.price_open)
                         if pos.profit > 0:
+                            # คำนวณระยะทางของกราฟที่เทียบเท่ากับเงิน 1 ดอลลาร์
                             price_dist_per_usd = price_diff / pos.profit
-                            lock_usd = pos.profit - 1.0 # ยอมให้สะบัด 1 ดอลลาร์
-                            lock_price_dist = lock_usd * price_dist_per_usd
+                            # แปลงเงิน $0.10 ที่อยากล็อค ให้กลายเป็นระยะทางของจุด (Points)
+                            lock_price_dist = TRAIL_LOCK_USD * price_dist_per_usd
                             
                             if pos.type == mt5.ORDER_TYPE_BUY:
                                 new_sl = pos.price_open + lock_price_dist
+                                # ถ้า SL ใหม่สูงกว่า SL เดิม (ขยับขึ้นบี้กำไร) ค่อยส่งคำสั่ง
                                 if pos.sl < new_sl:
                                     mt5.order_send({"action": mt5.TRADE_ACTION_SLTP, "symbol": symbol, "sl": round(new_sl, sym_info.digits), "tp": pos.tp, "position": pos.ticket})
+                                    print(f"🛡️ [Trailing Stop] บังหน้าทุนไม้ BUY {pos.ticket} ล็อคกำไร ${TRAIL_LOCK_USD:.2f}")
                                     
                             elif pos.type == mt5.ORDER_TYPE_SELL:
                                 new_sl = pos.price_open - lock_price_dist
+                                # ถ้า SL ใหม่ต่ำกว่า SL เดิม (ขยับลงบี้กำไร) หรือยังไม่มี SL ค่อยส่งคำสั่ง
                                 if pos.sl == 0.0 or pos.sl > new_sl:
                                     mt5.order_send({"action": mt5.TRADE_ACTION_SLTP, "symbol": symbol, "sl": round(new_sl, sym_info.digits), "tp": pos.tp, "position": pos.ticket})
+                                    print(f"🛡️ [Trailing Stop] บังหน้าทุนไม้ SELL {pos.ticket} ล็อคกำไร ${TRAIL_LOCK_USD:.2f}")
             
             # ----------------------------------------
             # 🚀 1.4 โหมด Add-On (Pyramiding)
@@ -689,7 +701,7 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
                 final_signal = "sell"
                 
         # ----------------------------------------------------
-        # 🎯 Mode 3: X-Sniper V6 (Synced with Indicator Parameters)
+        # 🎯 Mode 3: X-Sniper V6 (Fast Action + Full Dashboard Control ⚡)
         # ----------------------------------------------------
         elif sig_mode == "x_sniper":
             closed_5_highs = df['high'].iloc[-6:-1].values
@@ -699,50 +711,53 @@ def run_bot_cycle(active_symbols: list, is_trading_enabled: bool = True):
             is_x_above = (closed_5_highs[2] == max(closed_5_highs))
             current_close = df['close'].iloc[-1]
             
-            kz21_low = df['low'].iloc[-22:-1].min()
-            kz21_high = df['high'].iloc[-22:-1].max()
+            # 🔍 ปรับกรอบรับ/ต้านตามค่า KZ_BARS จาก Dashboard
+            kz_low = df['low'].iloc[-(KZ_BARS+1):-1].min()
+            kz_high = df['high'].iloc[-(KZ_BARS+1):-1].max()
             
             if is_x_below:
-                recent_high_oez = df['high'].iloc[-9:-1].max() 
+                # 🔍 หาแรงเทขายจากระยะ OEZ_BARS จาก Dashboard
+                recent_high_oez = df['high'].iloc[-(OEZ_BARS+1):-1].max() 
                 x_low = closed_5_lows[2]
                 
                 drop_usd = recent_high_oez - x_low
                 bounce_usd = current_close - x_low
                 bounce_ratio = bounce_usd / drop_usd if drop_usd > 0 else 0
                 
-                is_gap_safe = drop_usd <= 10.0  
-                is_bounced = bounce_ratio >= 0.30 
-                is_at_kz21_bottom = (x_low <= kz21_low)
+                is_gap_safe = drop_usd <= MAX_GAP_USD  
+                is_bounced = bounce_ratio >= MIN_BOUNCE_RATIO 
+                is_at_kz_bottom = (x_low <= kz_low)
 
                 if is_trading_enabled:
-                    print(f"\r🎯 [X-Sniper] 📉 Found Bottom-X! | KZ21 Low?: {is_at_kz21_bottom} | Drop: {drop_usd:.2f}$ (<=10.0) | Bounce: {bounce_ratio*100:.1f}% (>=30%) {' '*5}", end="")
+                    print(f"\r🎯 [X-Sniper] 📉 Found Bottom-X! | KZ{KZ_BARS} Low?: {is_at_kz_bottom} | Drop: {drop_usd:.2f}$ (<={MAX_GAP_USD}) | Bounce: {bounce_ratio*100:.1f}% (>={MIN_BOUNCE_RATIO*100:.1f}%) {' '*5}", end="")
                     
-                if is_gap_safe and is_bounced and is_at_kz21_bottom:
-                    print(f"\n✅ [X-Sniper] 🟢 All conditions met (Quality + KZ21)! Executing BUY!")
+                if is_gap_safe and is_bounced and is_at_kz_bottom:
+                    print(f"\n✅ [X-Sniper] 🟢 All conditions met (Fast Action)! Executing BUY!")
                     final_signal = "buy"
                     
             elif is_x_above:
-                recent_low_oez = df['low'].iloc[-9:-1].min()
+                # 🔍 หาแรงปั๊มราคาจากระยะ OEZ_BARS จาก Dashboard
+                recent_low_oez = df['low'].iloc[-(OEZ_BARS+1):-1].min()
                 x_high = closed_5_highs[2]
                 
                 pump_usd = x_high - recent_low_oez
                 pullback_usd = x_high - current_close
                 bounce_ratio = pullback_usd / pump_usd if pump_usd > 0 else 0
                 
-                is_gap_safe = pump_usd <= 10.0  
-                is_bounced = bounce_ratio >= 0.30 
-                is_at_kz21_top = (x_high >= kz21_high)
+                is_gap_safe = pump_usd <= MAX_GAP_USD  
+                is_bounced = bounce_ratio >= MIN_BOUNCE_RATIO 
+                is_at_kz_top = (x_high >= kz_high)
                 
                 if is_trading_enabled:
-                    print(f"\r🎯 [X-Sniper] 📈 Found Top-X! | KZ21 High?: {is_at_kz21_top} | Pump: {pump_usd:.2f}$ (<=10.0) | Pullback: {bounce_ratio*100:.1f}% (>=30%) {' '*5}", end="")
+                    print(f"\r🎯 [X-Sniper] 📈 Found Top-X! | KZ{KZ_BARS} High?: {is_at_kz_top} | Pump: {pump_usd:.2f}$ (<={MAX_GAP_USD}) | Pullback: {bounce_ratio*100:.1f}% (>={MIN_BOUNCE_RATIO*100:.1f}%) {' '*5}", end="")
                 
-                if is_gap_safe and is_bounced and is_at_kz21_top:
-                    print(f"\n✅ [X-Sniper] 🔴 All conditions met (Quality + KZ21)! Executing SELL!")
+                if is_gap_safe and is_bounced and is_at_kz_top:
+                    print(f"\n✅ [X-Sniper] 🔴 All conditions met (Fast Action)! Executing SELL!")
                     final_signal = "sell"
             else:
                 if is_trading_enabled:
                     print(f"\r🎯 [X-Sniper] ⏳ Scanning for X signal... (Waiting for confirmation) {' '*30}", end="")
-                    
+
         # ==========================================
         # 🚀 โซน 2.5: ส่งคำสั่งเทรด (ถ้ามีสัญญาณ)
         # ==========================================

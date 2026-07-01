@@ -1,0 +1,9 @@
+exness.e29ckg.org {
+    # จัดการ API: เมื่อเรียก /api/... ให้ strip /api ออกแล้วส่งที่เหลือไปพอร์ต 8000
+    handle_path /api/* {
+        reverse_proxy localhost:8000
+    }
+
+    # จัดการส่วนที่เหลือทั้งหมดให้ไปที่ Vue Dashboard
+    reverse_proxy 127.0.0.1:5173
+}

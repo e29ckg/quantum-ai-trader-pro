@@ -422,9 +422,11 @@ const isAuthenticated = ref(!!localStorage.getItem('access_token'));
 const loginForm = ref({ username: '', password: '' });
 const loginError = ref('');
 
-const currentHost = window.location.hostname;
-const API_URL = `http://${currentHost}`; 
-const WS_URL = `ws://${currentHost}/ws/status`; 
+// ใช้ /api สำหรับ REST API
+const API_URL = '/api'; 
+
+// ใช้ ws หรือ wss สำหรับ WebSocket (แนะนำให้เป็น /api/ws/status เพื่อให้ตรงกับ proxy)
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/ws/status`;
 
 const ws = ref(null);
 const isConnected = ref(false);
